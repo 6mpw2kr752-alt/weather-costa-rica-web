@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Station Météorologique · San José</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root {
+  --bg-page:    #0c3e36;
+  --bg-card:    #051d19;
+  --bg-elev:    #0a2b25;
+  --bg-mid:     #124c43;
+  --line:       rgba(223, 222, 217, 0.15);
+  --line-soft:  rgba(223, 222, 217, 0.05);
+  --text:       #dfded9;
+  --text-soft:  #a4b495;
+  --text-faint: rgba(164, 180, 149, 0.5);
+  --accent-org: #cd662a;
+  --amber:      var(--accent-org);
+  --warm:       var(--accent-org);
+  --font-base: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.day-meta {
+  border: 1px solid var(--line);
+  background: var(--bg-card);
+  padding: 20px 24px;
+  margin-top: 32px;
+  display: none;
+}
+.day-meta.on { display: block; }
+.day-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.day-meta-row:last-child { margin-bottom: 0; }
+.day-meta-label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  min-width: 80px;
+}
+.day-meta-input {
+  flex: 1;
+  font-family: var(--font-base);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  border-radius: 2px;
+  outline: none;
+}
+.day-meta-input:focus { border-color: var(--amber); }
+.day-meta-status {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.day-meta-status.saving { color: var(--amber); }
+.day-meta-status.saved  { color: var(--accent-grn); }
+html, body {
+  background: var(--bg-page);
+  color: var(--text);
+  font-family: var(--font-base);
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 0%, rgba(205, 102, 42, 0.06), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(65, 121, 93, 0.08), transparent 70%),
+    linear-gradient(180deg, var(--bg-page) 0%, var(--bg-mid) 100%);
+  pointer-events: none;
+  z-index: -2;
+}
+
+.app { max-width: 1280px; margin: 0 auto; padding: 32px 32px 64px; }
+@media (max-width: 720px) { .app { padding: 20px 18px 40px; } }
+
+header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding-bottom: 24px; border-bottom: 1px solid var(--line);
+  margin-bottom: 48px; gap: 24px; flex-wrap: wrap;
+}
+.title-block .coord {
+  font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--text-soft); margin-bottom: 8px;
+}
+.title-block h1 {
+  font-weight: 500; font-size: clamp(28px, 4vw, 42px);
+  letter-spacing: -0.02em; line-height: 1.1;
+}
+.title-block h1 em { font-style: italic; font-weight: 400; color: var(--amber); }
+
+.status-block {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+}
+.status-pill { display: flex; align-items: center; gap: 8px; color: var(--text-soft); }
+.status-pill .dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint);
+  transition: background-color 0.4s ease;
+}
+.status-pill.live .dot {
+  background: var(--text-soft);
+  box-shadow: 0 0 12px rgba(164, 180, 149, 0.6);
+  animation: pulse 2s infinite;
+}
+.status-pill.live { color: var(--text-soft); }
+.status-pill.error .dot { background: var(--warm); }
+.status-pill.error { color: var(--warm); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.last-update { color: var(--text-faint); font-size: 10px; }
+
+.hero {
+  position: relative; border: 1px solid var(--line);
+  background: linear-gradient(135deg, rgba(5, 29, 25, 0.8), var(--bg-card));
+  padding: 56px 48px; margin-bottom: 32px; overflow: hidden;
+  transition: border-color 0.6s ease;
+}
+.hero::before {
+  content: ''; position: absolute; inset: 0; opacity: 0.5; pointer-events: none;
+  transition: background 1s ease;
+  background: radial-gradient(ellipse 60% 80% at 80% 50%, var(--hero-glow, transparent), transparent 70%);
+}
+.hero[data-state="clear"]     { --hero-glow: rgba(205, 102, 42, 0.15); border-color: rgba(205, 102, 42, 0.25); }
+.hero[data-state="humid"]     { --hero-glow: rgba(164, 180, 149, 0.15); }
+.hero[data-state="mist"]      { --hero-glow: rgba(223, 222, 217, 0.12); }
+.hero[data-state="fog"]       { --hero-glow: rgba(223, 222, 217, 0.20); border-color: rgba(223, 222, 217, 0.25); }
+.hero[data-state="dense_fog"] { --hero-glow: rgba(223, 222, 217, 0.30); border-color: rgba(223, 222, 217, 0.40); }
+
+.hero-label { font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-soft); margin-bottom: 16px; position: relative; }
+.hero-state-name {
+  font-weight: 300; font-size: clamp(48px, 8vw, 84px);
+  line-height: 0.95; letter-spacing: -0.02em; margin-bottom: 16px; position: relative;
+}
+.hero-state-name em { font-style: italic; font-weight: 300; color: var(--amber); }
+.hero-detail { font-size: 18px; color: var(--text-soft); position: relative; max-width: 520px; }
+
+.section-label {
+  font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--text-faint); margin: 48px 0 16px;
+  display: flex; align-items: center; gap: 16px;
+}
+.section-label::after { content: ''; flex: 1; height: 1px; background: var(--line-soft); }
+
+.primary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.secondary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); }
+@media (max-width: 900px) {
+  .primary-grid   { grid-template-columns: 1fr; }
+  .secondary-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.metric { background: var(--bg-card); padding: 32px 28px; transition: background 0.3s ease; }
+.metric:hover { background: var(--bg-elev); }
+.metric-label {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-soft); margin-bottom: 24px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.metric-label .code { color: var(--text-faint); font-size: 10px; }
+.metric-value {
+  font-weight: 300; font-feature-settings: "tnum" 1;
+  line-height: 1; letter-spacing: -0.02em; color: var(--text);
+  display: flex; align-items: baseline; gap: 6px;
+}
+.primary-grid .metric-value { font-size: clamp(48px, 6vw, 72px); }
+.secondary-grid .metric-value { font-size: clamp(32px, 4vw, 42px); }
+.metric-value .dec { color: var(--text-soft); }
+.metric-value .unit { font-size: 0.32em; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
+.metric-trend { margin-top: 14px; font-size: 10px; color: var(--text-faint); letter-spacing: 0.05em; }
+.metric.updated { animation: flash 1.2s ease-out; }
+@keyframes flash { 0% { background: rgba(164, 180, 149, 0.15); } 100% { background: var(--bg-card); } }
+
+.chart-card { border: 1px solid var(--line); padding: 32px; margin-top: 32px; background: var(--bg-card); }
+.chart-card h2 {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-soft); font-weight: 400; margin-bottom: 24px;
+  display: flex; justify-content: space-between;
+}
+.chart-wrap { height: 280px; position: relative; }
+.chart-tools { display: flex; align-items: center; gap: 14px; text-transform: none; letter-spacing: 0; }
+
+#day-picker {
+  font-size: 11px; color: var(--text-soft); background: var(--bg-elev);
+  border: 1px solid var(--line); padding: 5px 8px; border-radius: 2px;
+  cursor: pointer; outline: none;
+}
+#day-picker:hover { border-color: var(--amber); color: var(--text); }
+
+.archive-badge {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--amber); border: 1px solid rgba(205, 102, 42, 0.3);
+  padding: 3px 8px; border-radius: 2px; display: none;
+}
+.archive-badge.on { display: inline-block; }
+
+footer {
+  margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line);
+  display: flex; justify-content: space-between;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-faint); flex-wrap: wrap; gap: 12px;
+}
+footer .signal-data span { color: var(--text-soft); }
+
+.dashboard.no-data .hero-state-name { color: var(--text-faint); }
+.dashboard.no-data .metric-value    { color: var(--text-faint); }
+</style>
+</head>
+
+<body>
+<div class="app dashboard no-data">
+
+  <header>
+    <div class="title-block">
+      <div class="coord">9.93°N · 84.08°W — SAN JOSÉ, COSTA RICA</div>
+      <h1>Station <em>Météorologique</em></h1>
+    </div>
+    <div class="status-block">
+      <div class="status-pill" id="status">
+        <span class="dot"></span>
+        <span id="status-text">Connexion…</span>
+      </div>
+      <div class="last-update" id="last-update">en attente de données</div>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="hero" data-state="unknown" id="hero">
+      <div class="hero-label">Conditions actuelles</div>
+      <div class="hero-state-name" id="state-name">— —</div>
+      <div class="hero-detail" id="state-detail">en attente de la première mesure</div>
+    </section>
+
+    <div class="section-label">Mesures principales</div>
+    <section class="primary-grid">
+      <div class="metric" data-key="temperature">
+        <div class="metric-label"><span>Température</span><span class="code">BME280</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">°C</span></div>
+        <div class="metric-trend">capteur intérieur du module</div>
+      </div>
+      <div class="metric" data-key="humidity">
+        <div class="metric-label"><span>Humidité</span><span class="code">RH</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">%</span></div>
+        <div class="metric-trend">point de rosée déduit</div>
+      </div>
+      <div class="metric" data-key="pressure">
+        <div class="metric-label"><span>Pression</span><span class="code">hPa</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">hPa</span></div>
+        <div class="metric-trend">niveau station</div>
+      </div>
+    </section>
+
+    <div class="section-label">Mesures secondaires</div>
+    <section class="secondary-grid">
+      <div class="metric" data-key="wind_speed">
+        <div class="metric-label"><span>Vent</span><span class="code">RS485</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">m/s</span></div>
+      </div>
+      <div class="metric" data-key="solar">
+        <div class="metric-label"><span>Solaire</span><span class="code">PR-300</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">W/m²</span></div>
+      </div>
+      <div class="metric" data-key="ir_scatter">
+        <div class="metric-label"><span>IR Scatter</span><span class="code">PROX</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">brut</span></div>
+      </div>
+      <div class="metric" data-key="rain_today_mm">
+        <div class="metric-label"><span>Pluie du jour</span><span class="code">PC</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">mm</span></div>
+      </div>
+    </section>
+
+    <div class="section-label">Évolution récente</div>
+    <section class="day-meta" id="day-meta">
+          <div class="day-meta-row">
+            <span class="day-meta-label">📍 Lieu</span>
+            <input type="text" class="day-meta-input" id="meta-location" placeholder="ex: Jardin face sud, 1170m altitude" />
+            <span class="day-meta-status" id="meta-status">—</span>
+          </div>
+          <div class="day-meta-row">
+            <span class="day-meta-label">📝 Note</span>
+            <input type="text" class="day-meta-input" id="meta-note" placeholder="ex: Test placement Stevenson, abri PETG" />
+          </div>
+        </section>
+    <section class="chart-card">
+      <h2>
+        <span>Température &amp; humidité — <span id="chart-day-label">dernières mesures</span></span>
+        <span class="chart-tools">
+          <span class="archive-badge" id="archive-badge">archive</span>
+          <select id="day-picker"><option value="">Aujourd'hui (live)</option></select>
+          <span id="chart-count">0 points</span>
+        </span>
+      </h2>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </section>
+
+    <div class="section-label">Rayonnement solaire</div>
+    <section class="chart-card">
+      <h2><span>Énergie solaire reçue</span><span class="chart-tools"><span id="solar-count">0 points</span></span></h2>
+      <div class="chart-wrap"><canvas id="chart-solar"></canvas></div>
+    </section>
+
+    <div class="section-label">Vent</div>
+    <section class="chart-card">
+      <h2><span>Vitesse du vent</span><span class="chart-tools"><span id="wind-count">0 points</span></span></h2>
+      <div class="chart-wrap"><canvas id="chart-wind"></canvas></div>
+    </section>
+
+    <div class="section-label">Immersion nuageuse</div>
+    <section class="chart-card">
+      <h2><span>Diffusion infrarouge — détection de brouillard</span><span class="chart-tools"><span id="ir-count">0 points</span></span></h2>
+      <div class="chart-wrap"><canvas id="chart-ir"></canvas></div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div>STM32WLE5JC · LoRaWAN US915 · The Things Network (nam1)</div>
+    <div class="signal-data">
+      <span id="device-id">device —</span> ·
+      <span id="rssi">RSSI —</span> ·
+      <span id="snr">SNR —</span> ·
+      <span id="fcnt">FCnt —</span>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+    // Remplacez par vos vraies clés Supabase
+    const SUPABASE_URL = 'https://qszrtpekhutrnttvkzay.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_iIx1k7_FkgKJRcQtx7TLwg_85hURs0j';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const STATE_INFO = {
+  clear:     { name: ['Ciel', 'clair'],       detail: 'Atmosphère stable. Aucune trace de brume détectée par le capteur infrarouge.' },
+  humid:     { name: ['Air', 'humide'],       detail: 'Humidité élevée mais sans condensation visible. La visibilité reste bonne.' },
+  mist:      { name: ['Brume', 'légère'],     detail: 'Particules d\'eau en suspension. Le capteur IR détecte une diffusion.' },
+  fog:       { name: ['Brouillard'],          detail: 'Condensation atmosphérique active. La rétro-diffusion infrarouge est franche.' },
+  dense_fog: { name: ['Brouillard', 'épais'], detail: 'Visibilité fortement réduite. Saturation thermodynamique.' },
+  unknown:   { name: ['— —'],                 detail: 'En attente de la première mesure.' }
+};
+
+const statusEl     = document.getElementById('status');
+const statusText   = document.getElementById('status-text');
+const lastUpdateEl = document.getElementById('last-update');
+const fontConfig   = { family: "'Helvetica Neue', Helvetica, Arial, sans-serif" };
+
+let lastReadingAt = null;
+let history       = [];
+let viewingPast   = false;
+let ws            = null;
+
+function setStatus(state, text) {
+  statusEl.classList.remove('live', 'error');
+  if (state === 'live')  statusEl.classList.add('live');
+  if (state === 'error') statusEl.classList.add('error');
+  statusText.textContent = text;
+}
+
+function relativeTime(iso) {
+  if (!iso) return '—';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60)    return `il y a ${Math.floor(diff)}s`;
+  if (diff < 3600)  return `il y a ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
+  return new Date(iso).toLocaleString('fr-FR');
+}
+
+setInterval(() => {
+  if (lastReadingAt) lastUpdateEl.textContent = `Dernière mesure ${relativeTime(lastReadingAt)}`;
+}, 1000);
+
+function formatNumber(value, key) {
+  if (value === null || value === undefined || value === '') return '—';
+  const num = Number(value);
+  if (isNaN(num)) return '—';
+  const dmap = { temperature: 2, humidity: 1, pressure: 1, wind_speed: 1, solar: 0, ir_scatter: 0, rain_today_mm: 1 };
+  return num.toFixed(dmap[key] ?? 1);
+}
+
+function setMetric(key, value) {
+  const card = document.querySelector(`.metric[data-key="${key}"]`);
+  if (!card) return;
+  const numEl = card.querySelector('.num');
+  const formatted = formatNumber(value, key);
+  if (formatted.includes('.')) {
+    const [int, dec] = formatted.split('.');
+    numEl.innerHTML = `${int}<span class="dec">.${dec}</span>`;
+  } else {
+    numEl.textContent = formatted;
+  }
+  card.classList.remove('updated');
+  void card.offsetWidth;
+  card.classList.add('updated');
+}
+
+function setHero(weather) {
+  const info = STATE_INFO[weather] || STATE_INFO.unknown;
+  document.getElementById('hero').dataset.state = weather || 'unknown';
+  const nameEl   = document.getElementById('state-name');
+  const detailEl = document.getElementById('state-detail');
+  if (info.name.length === 2) nameEl.innerHTML = `${info.name[0]} <em>${info.name[1]}</em>`;
+  else                        nameEl.innerHTML = `<em>${info.name[0]}</em>`;
+  detailEl.textContent = info.detail;
+}
+
+function applyReading(r) {
+  if (!r) return;
+  document.querySelector('.dashboard').classList.remove('no-data');
+  setMetric('temperature',   r.temperature);
+  setMetric('humidity',      r.humidity);
+  setMetric('pressure',      r.pressure);
+  setMetric('wind_speed',    r.wind_speed);
+  setMetric('solar',         r.solar);
+  setMetric('ir_scatter',    r.ir_scatter);
+  setMetric('rain_today_mm', r.rain_today_mm);
+  setHero(r.weather);
+  document.getElementById('device-id').textContent = `${r.device_id || '—'}`;
+  document.getElementById('rssi').textContent = r.rssi != null ? `RSSI ${r.rssi} dBm` : 'RSSI —';
+  document.getElementById('snr').textContent  = (r.snr != null && !isNaN(Number(r.snr))) ? `SNR ${Number(r.snr).toFixed(1)} dB` : 'SNR —';
+  document.getElementById('fcnt').textContent = r.f_cnt != null ? `FCnt ${r.f_cnt}` : 'FCnt —';
+  lastReadingAt = r.received_at;
+  lastUpdateEl.textContent = `Dernière mesure ${relativeTime(lastReadingAt)}`;
+}
+
+const chart = new Chart(document.getElementById('chart').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { label: 'Température (°C)', data: [], borderColor: '#cd662a', backgroundColor: 'rgba(205, 102, 42, 0.08)', tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#cd662a', fill: true,  yAxisID: 'y'  },
+      { label: 'Humidité (%)',     data: [], borderColor: '#a4b495', backgroundColor: 'rgba(164, 180, 149, 0.05)', tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#a4b495', fill: false, yAxisID: 'y1' }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#dfded9', font: { ...fontConfig, size: 11 }, boxWidth: 8, boxHeight: 8, padding: 16, usePointStyle: true } },
+      tooltip: { backgroundColor: '#051d19', borderColor: 'rgba(223, 222, 217, 0.15)', borderWidth: 1, titleColor: '#dfded9', bodyColor: '#a4b495', titleFont: { ...fontConfig, size: 12 }, bodyFont: { ...fontConfig, size: 14 }, padding: 12, displayColors: true, boxPadding: 4 }
+    },
+    scales: {
+      x:  { grid: { color: 'rgba(223, 222, 217, 0.05)' }, ticks: { color: 'rgba(164, 180, 149, 0.8)', font: { ...fontConfig, size: 10 }, maxRotation: 0, autoSkipPadding: 30 } },
+      y:  { position: 'left',  grid: { color: 'rgba(223, 222, 217, 0.05)' }, ticks: { color: '#cd662a', font: { ...fontConfig, size: 11 } } },
+      y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#a4b495', font: { ...fontConfig, size: 11 } } }
+    }
+  }
+});
+
+function makeSimpleChart(canvasId, label, color, fillRgba) {
+  return new Chart(document.getElementById(canvasId).getContext('2d'), {
+    type: 'line',
+    data: { labels: [], datasets: [{ label, data: [], borderColor: color, backgroundColor: fillRgba, tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: color, fill: true }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { backgroundColor: '#051d19', borderColor: 'rgba(223, 222, 217, 0.15)', borderWidth: 1, titleColor: '#dfded9', bodyColor: '#a4b495', titleFont: { ...fontConfig, size: 12 }, bodyFont: { ...fontConfig, size: 14 }, padding: 12, displayColors: false }
+      },
+      scales: {
+        x: { grid: { color: 'rgba(223, 222, 217, 0.05)' }, ticks: { color: 'rgba(164, 180, 149, 0.8)', font: { ...fontConfig, size: 10 }, maxRotation: 0, autoSkipPadding: 30 } },
+        y: { grid: { color: 'rgba(223, 222, 217, 0.05)' }, ticks: { color, font: { ...fontConfig, size: 11 } }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+const chartSolar = makeSimpleChart('chart-solar', 'Solaire (W/m²)', '#cd662a', 'rgba(205, 102, 42, 0.10)');
+const chartWind  = makeSimpleChart('chart-wind',  'Vent (m/s)',     '#a4b495', 'rgba(164, 180, 149, 0.10)');
+const chartIR    = makeSimpleChart('chart-ir',    'IR scatter',     '#dfded9', 'rgba(223, 222, 217, 0.08)');
+
+function refreshChart(data) {
+  const last   = data.slice(-60);
+  const labels = last.map(r => {
+    const d = new Date(r.received_at);
+    return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  });
+
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = last.map(r => r.temperature);
+  chart.data.datasets[1].data = last.map(r => r.humidity);
+  chart.update('none');
+
+  chartSolar.data.labels = labels;
+  chartSolar.data.datasets[0].data = last.map(r => r.solar);
+  chartSolar.update('none');
+
+  chartWind.data.labels = labels;
+  chartWind.data.datasets[0].data = last.map(r => r.wind_speed);
+  chartWind.update('none');
+
+  chartIR.data.labels = labels;
+  chartIR.data.datasets[0].data = last.map(r => r.ir_scatter);
+  chartIR.update('none');
+
+  const lbl = `${last.length} point${last.length > 1 ? 's' : ''}`;
+  document.getElementById('chart-count').textContent = lbl;
+  document.getElementById('solar-count').textContent = lbl;
+  document.getElementById('wind-count').textContent  = lbl;
+  document.getElementById('ir-count').textContent    = lbl;
+}
+
+    function connectSupabaseRealtime() {
+      setStatus(null, 'Connexion Supabase…');
+
+      const channel = supabaseClient.channel('live-weather')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'readings' },
+          (payload) => {
+            const newReading = payload.new;
+            const todayKey = new Date().toLocaleDateString('en-CA');
+            
+            // Convertir la date du payload pour vérification
+            const msgDay = newReading.received_at
+              ? new Date(newReading.received_at).toLocaleDateString('en-CA')
+              : todayKey;
+
+            if (msgDay !== todayKey) { location.reload(); return; }
+            
+            history.push(newReading);
+            if (history.length > 200) history.shift();
+            
+            applyReading(newReading);
+            if (!viewingPast) refreshChart(history);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            setStatus('live', 'Live (Realtime)');
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+            setStatus('error', 'Déconnecté');
+            setTimeout(connectSupabaseRealtime, 5000); // Reconnexion auto
+          }
+        });
+    }
+
+const dayPicker     = document.getElementById('day-picker');
+const archiveBadge  = document.getElementById('archive-badge');
+const chartDayLabel = document.getElementById('chart-day-label');
+
+function formatDayLabel(key) {
+  const [y, m, d] = key.split('-');
+  const dt = new Date(Number(y), Number(m) - 1, Number(d));
+  return dt.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+    async function loadDays() {
+      try {
+        // Utilise la fonction SQL créée à l'étape 1
+        const { data: days, error } = await supabaseClient.rpc('get_available_days');
+        if (error) throw error;
+
+        const todayKey = new Date().toLocaleDateString('en-CA');
+        dayPicker.innerHTML = '<option value="">Aujourd\'hui (live)</option>';
+        
+        // Extrait les dates et filtre aujourd'hui
+        const dayList = days.map(d => d.day).filter(k => k !== todayKey);
+        
+        dayList.forEach(k => {
+          const opt = document.createElement('option');
+          opt.value = k;
+          opt.textContent = formatDayLabel(k);
+          dayPicker.appendChild(opt);
+        });
+      } catch (e) {
+        console.warn('[Days] Echec:', e);
+      }
+    }
+
+    // Fonction utilitaire pour récupérer les données d'un jour précis
+    async function fetchHistoryByDate(dateStr) {
+      const start = `${dateStr}T00:00:00.000Z`;
+      const end = `${dateStr}T23:59:59.999Z`;
+
+      const { data, error } = await supabaseClient
+        .from('readings')
+        .select('*')
+        .gte('received_at', start)
+        .lte('received_at', end)
+        .order('received_at', { ascending: true });
+
+      if (error) {
+        console.error('[History] Echec fetch:', error);
+        return [];
+      }
+      return data || [];
+    }
+
+    dayPicker.addEventListener('change', async () => {
+      const date = dayPicker.value;
+      const todayKey = new Date().toLocaleDateString('en-CA');
+
+      await loadDayMeta(date || todayKey);
+
+      if (!date) {
+        /* Mode LIVE */
+        viewingPast = false;
+        archiveBadge.classList.remove('on');
+        chartDayLabel.textContent = 'dernières mesures';
+        const data = await fetchHistoryByDate(todayKey);
+        if (data && data.length > 0) {
+          history = data;
+          refreshChart(history);
+          applyReading(history[history.length - 1]);
+        }
+        return;
+      }
+
+      /* Mode ARCHIVE */
+      viewingPast = true;
+      archiveBadge.classList.add('on');
+      chartDayLabel.textContent = formatDayLabel(date);
+
+      const data = await fetchHistoryByDate(date);
+      if (data && data.length > 0) {
+        refreshChart(data);
+        applyReading(data[data.length - 1]);
+      } else {
+        refreshChart([]);
+        document.querySelector('.dashboard').classList.add('no-data');
+      }
+    });
+    /* ===== Day metadata (lieu + note par jour) ===== */
+    const dayMetaPanel   = document.getElementById('day-meta');
+    const metaLocationEl = document.getElementById('meta-location');
+    const metaNoteEl     = document.getElementById('meta-note');
+    const metaStatusEl   = document.getElementById('meta-status');
+    let metaSaveTimer = null;
+    let currentMetaDay = null;
+
+
+    function scheduleMetaSave() {
+      if (!currentMetaDay) return;
+      metaStatusEl.textContent = 'modif…';
+      metaStatusEl.className = 'day-meta-status saving';
+      clearTimeout(metaSaveTimer);
+      metaSaveTimer = setTimeout(saveDayMeta, 800);
+    }
+
+    async function loadDayMeta(day) {
+      if (!day) {
+        dayMetaPanel.classList.remove('on');
+        currentMetaDay = null;
+        return;
+      }
+      currentMetaDay = day;
+      dayMetaPanel.classList.add('on');
+      
+      const { data, error } = await supabaseClient
+        .from('day_metadata')
+        .select('*')
+        .eq('day', day)
+        .maybeSingle(); // maybeSingle évite l'erreur si la ligne n'existe pas encore
+
+      if (error) console.warn('[Meta] load fail:', error);
+
+      metaLocationEl.value = data?.location || '';
+      metaNoteEl.value     = data?.note || '';
+      metaStatusEl.textContent = '—';
+      metaStatusEl.className = 'day-meta-status';
+    }
+
+    async function saveDayMeta() {
+      if (!currentMetaDay) return;
+      try {
+        const { error } = await supabaseClient
+          .from('day_metadata')
+          .upsert({
+            day: currentMetaDay,
+            location: metaLocationEl.value.trim(),
+            note: metaNoteEl.value.trim()
+          }, { onConflict: 'day' });
+
+        if (error) throw error;
+
+        metaStatusEl.textContent = '✓ sauvé';
+        metaStatusEl.className = 'day-meta-status saved';
+      } catch (e) {
+        console.error(e);
+        metaStatusEl.textContent = '⚠ erreur';
+        metaStatusEl.className = 'day-meta-status';
+      }
+    }
+
+    metaLocationEl.addEventListener('input', scheduleMetaSave);
+    metaNoteEl.addEventListener('input', scheduleMetaSave);
+    async function initDashboard() {
+      await loadDays();
+      const todayKey = new Date().toLocaleDateString('en-CA');
+      await loadDayMeta(todayKey);
+      
+      const data = await fetchHistoryByDate(todayKey);
+      if (data && data.length > 0) {
+        history = data;
+        refreshChart(history);
+        applyReading(history[history.length - 1]);
+      }
+      
+      connectSupabaseRealtime();
+    }
+
+    initDashboard();
+    setInterval(loadDays, 5 * 60 * 1000);
+</script>
+
+</body>
+</html>
