@@ -6,7 +6,6 @@
 <title>Station Météorologique · San José</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
@@ -21,6 +20,7 @@
   --text-soft:  #a4b495;
   --text-faint: rgba(164, 180, 149, 0.5);
   --accent-org: #cd662a;
+  --accent-grn: #6fae8e;
   --amber:      var(--accent-org);
   --warm:       var(--accent-org);
   --font-base: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -345,10 +345,14 @@ footer .signal-data span { color: var(--text-soft); }
 </div>
 
 <script>
-    // Remplacez par vos vraies clés Supabase
+    // ---- Cles Supabase (la cle "publishable" est publique : OK dans le navigateur) ----
     const SUPABASE_URL = 'https://qszrtpekhutrnttvkzay.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_iIx1k7_FkgKJRcQtx7TLwg_85hURs0j';
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // Intervalle de rafraichissement du mode live (ms). Le capteur emet ~toutes les 15 min.
+    const POLL_MS = 30000;
+
 const STATE_INFO = {
   clear:     { name: ['Ciel', 'clair'],       detail: 'Atmosphère stable. Aucune trace de brume détectée par le capteur infrarouge.' },
   humid:     { name: ['Air', 'humide'],       detail: 'Humidité élevée mais sans condensation visible. La visibilité reste bonne.' },
@@ -366,7 +370,7 @@ const fontConfig   = { family: "'Helvetica Neue', Helvetica, Arial, sans-serif" 
 let lastReadingAt = null;
 let history       = [];
 let viewingPast   = false;
-let ws            = null;
+let pollTimer     = null;
 
 function setStatus(state, text) {
   statusEl.classList.remove('live', 'error');
@@ -519,39 +523,33 @@ function refreshChart(data) {
   document.getElementById('ir-count').textContent    = lbl;
 }
 
-    function connectSupabaseRealtime() {
-      setStatus(null, 'Connexion Supabase…');
+    // ---------------------------------------------------------------
+    //  MODE LIVE — rafraichissement periodique (remplace le Realtime)
+    //  On relit les mesures du jour toutes les POLL_MS ms.
+    //  Meme chemin REST que le chargement initial : fiable, sans WebSocket.
+    // ---------------------------------------------------------------
+    async function pollLive() {
+      if (viewingPast) return; // pas de rafraichissement quand on regarde une archive
+      const todayKey = new Date().toLocaleDateString('en-CA');
+      const data = await fetchHistoryByDate(todayKey);
 
-      const channel = supabaseClient.channel('live-weather')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'readings' },
-          (payload) => {
-            const newReading = payload.new;
-            const todayKey = new Date().toLocaleDateString('en-CA');
-            
-            // Convertir la date du payload pour vérification
-            const msgDay = newReading.received_at
-              ? new Date(newReading.received_at).toLocaleDateString('en-CA')
-              : todayKey;
+      if (data === null) {            // erreur reseau / Supabase
+        setStatus('error', 'Déconnecté');
+        return;
+      }
+      setStatus('live', 'Live');
+      if (data.length > 0) {
+        history = data;
+        refreshChart(history);
+        applyReading(history[history.length - 1]);
+      }
+    }
 
-            if (msgDay !== todayKey) { location.reload(); return; }
-            
-            history.push(newReading);
-            if (history.length > 200) history.shift();
-            
-            applyReading(newReading);
-            if (!viewingPast) refreshChart(history);
-          }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            setStatus('live', 'Live (Realtime)');
-          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-            setStatus('error', 'Déconnecté');
-            setTimeout(connectSupabaseRealtime, 5000); // Reconnexion auto
-          }
-        });
+    function startLivePolling() {
+      setStatus('live', 'Live');
+      pollLive();
+      clearInterval(pollTimer);
+      pollTimer = setInterval(pollLive, POLL_MS);
     }
 
 const dayPicker     = document.getElementById('day-picker');
@@ -564,19 +562,24 @@ function formatDayLabel(key) {
   return dt.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+    // Liste des jours disponibles, calculee cote client (plus de RPC SQL).
     async function loadDays() {
       try {
-        // Utilise la fonction SQL créée à l'étape 1
-        const { data: days, error } = await supabaseClient.rpc('get_available_days');
+        const { data, error } = await supabaseClient
+          .from('readings')
+          .select('received_at')
+          .order('received_at', { ascending: false })
+          .limit(2000);
         if (error) throw error;
 
         const todayKey = new Date().toLocaleDateString('en-CA');
+        const set = new Set();
+        for (const r of data) {
+          set.add(new Date(r.received_at).toLocaleDateString('en-CA'));
+        }
+
         dayPicker.innerHTML = '<option value="">Aujourd\'hui (live)</option>';
-        
-        // Extrait les dates et filtre aujourd'hui
-        const dayList = days.map(d => d.day).filter(k => k !== todayKey);
-        
-        dayList.forEach(k => {
+        [...set].filter(k => k !== todayKey).sort().reverse().forEach(k => {
           const opt = document.createElement('option');
           opt.value = k;
           opt.textContent = formatDayLabel(k);
@@ -587,10 +590,10 @@ function formatDayLabel(key) {
       }
     }
 
-    // Fonction utilitaire pour récupérer les données d'un jour précis
+    // Recupere les mesures d'un jour. Renvoie un tableau, ou null si erreur.
     async function fetchHistoryByDate(dateStr) {
       const start = `${dateStr}T00:00:00.000Z`;
-      const end = `${dateStr}T23:59:59.999Z`;
+      const end   = `${dateStr}T23:59:59.999Z`;
 
       const { data, error } = await supabaseClient
         .from('readings')
@@ -601,7 +604,7 @@ function formatDayLabel(key) {
 
       if (error) {
         console.error('[History] Echec fetch:', error);
-        return [];
+        return null;
       }
       return data || [];
     }
@@ -617,12 +620,7 @@ function formatDayLabel(key) {
         viewingPast = false;
         archiveBadge.classList.remove('on');
         chartDayLabel.textContent = 'dernières mesures';
-        const data = await fetchHistoryByDate(todayKey);
-        if (data && data.length > 0) {
-          history = data;
-          refreshChart(history);
-          applyReading(history[history.length - 1]);
-        }
+        startLivePolling();
         return;
       }
 
@@ -665,12 +663,12 @@ function formatDayLabel(key) {
       }
       currentMetaDay = day;
       dayMetaPanel.classList.add('on');
-      
+
       const { data, error } = await supabaseClient
         .from('day_metadata')
         .select('*')
         .eq('day', day)
-        .maybeSingle(); // maybeSingle évite l'erreur si la ligne n'existe pas encore
+        .maybeSingle();
 
       if (error) console.warn('[Meta] load fail:', error);
 
@@ -704,19 +702,20 @@ function formatDayLabel(key) {
 
     metaLocationEl.addEventListener('input', scheduleMetaSave);
     metaNoteEl.addEventListener('input', scheduleMetaSave);
+
     async function initDashboard() {
       await loadDays();
       const todayKey = new Date().toLocaleDateString('en-CA');
       await loadDayMeta(todayKey);
-      
+
       const data = await fetchHistoryByDate(todayKey);
       if (data && data.length > 0) {
         history = data;
         refreshChart(history);
         applyReading(history[history.length - 1]);
       }
-      
-      connectSupabaseRealtime();
+
+      startLivePolling();       // remplace connectSupabaseRealtime()
     }
 
     initDashboard();
