@@ -351,7 +351,14 @@ footer .signal-data span { color: var(--text-soft); }
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Intervalle de rafraichissement du mode live (ms). Le capteur emet ~toutes les 15 min.
-    const POLL_MS = 30000;
+    const POLL_MS = 60000;
+
+    // Jour "local Costa Rica" (UTC-6) au format YYYY-MM-DD, depuis une date/timestamp.
+    function crDayKey(d) {
+      const t = new Date(d);
+      t.setUTCHours(t.getUTCHours() - 6);
+      return t.toISOString().split('T')[0];
+    }
 
 const STATE_INFO = {
   clear:     { name: ['Ciel', 'clair'],       detail: 'Atmosphère stable. Aucune trace de brume détectée par le capteur infrarouge.' },
@@ -528,10 +535,24 @@ function refreshChart(data) {
     //  On relit les mesures du jour toutes les POLL_MS ms.
     //  Meme chemin REST que le chargement initial : fiable, sans WebSocket.
     // ---------------------------------------------------------------
+    // Recupere les N mesures les plus recentes (tous jours confondus).
+    // Renvoie un tableau chronologique, ou null si erreur.
+    async function fetchRecent(limit = 200) {
+      const { data, error } = await supabaseClient
+        .from('readings')
+        .select('*')
+        .order('received_at', { ascending: false })
+        .limit(limit);
+      if (error) {
+        console.error('[Recent] Echec fetch:', error);
+        return null;
+      }
+      return (data || []).reverse();
+    }
+
     async function pollLive() {
       if (viewingPast) return; // pas de rafraichissement quand on regarde une archive
-      const todayKey = new Date().toLocaleDateString('en-CA');
-      const data = await fetchHistoryByDate(todayKey);
+      const data = await fetchRecent(200);
 
       if (data === null) {            // erreur reseau / Supabase
         setStatus('error', 'Déconnecté');
@@ -572,10 +593,10 @@ function formatDayLabel(key) {
           .limit(2000);
         if (error) throw error;
 
-        const todayKey = new Date().toLocaleDateString('en-CA');
+        const todayKey = crDayKey(Date.now());
         const set = new Set();
         for (const r of data) {
-          set.add(new Date(r.received_at).toLocaleDateString('en-CA'));
+          set.add(crDayKey(r.received_at));
         }
 
         dayPicker.innerHTML = '<option value="">Aujourd\'hui (live)</option>';
@@ -592,14 +613,17 @@ function formatDayLabel(key) {
 
     // Recupere les mesures d'un jour. Renvoie un tableau, ou null si erreur.
     async function fetchHistoryByDate(dateStr) {
-      const start = `${dateStr}T00:00:00.000Z`;
-      const end   = `${dateStr}T23:59:59.999Z`;
+      // Jour local Costa Rica (UTC-6) : minuit local = 06:00 UTC.
+      const from = `${dateStr}T06:00:00.000Z`;
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const next = new Date(Date.UTC(y, m - 1, d + 1));
+      const to = `${next.toISOString().split('T')[0]}T05:59:59.999Z`;
 
       const { data, error } = await supabaseClient
         .from('readings')
         .select('*')
-        .gte('received_at', start)
-        .lte('received_at', end)
+        .gte('received_at', from)
+        .lte('received_at', to)
         .order('received_at', { ascending: true });
 
       if (error) {
@@ -611,7 +635,7 @@ function formatDayLabel(key) {
 
     dayPicker.addEventListener('change', async () => {
       const date = dayPicker.value;
-      const todayKey = new Date().toLocaleDateString('en-CA');
+      const todayKey = crDayKey(Date.now());
 
       await loadDayMeta(date || todayKey);
 
@@ -705,10 +729,10 @@ function formatDayLabel(key) {
 
     async function initDashboard() {
       await loadDays();
-      const todayKey = new Date().toLocaleDateString('en-CA');
+      const todayKey = crDayKey(Date.now());
       await loadDayMeta(todayKey);
 
-      const data = await fetchHistoryByDate(todayKey);
+      const data = await fetchRecent(200);
       if (data && data.length > 0) {
         history = data;
         refreshChart(history);
