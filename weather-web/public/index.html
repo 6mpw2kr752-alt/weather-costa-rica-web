@@ -535,24 +535,10 @@ function refreshChart(data) {
     //  On relit les mesures du jour toutes les POLL_MS ms.
     //  Meme chemin REST que le chargement initial : fiable, sans WebSocket.
     // ---------------------------------------------------------------
-    // Recupere les N mesures les plus recentes (tous jours confondus).
-    // Renvoie un tableau chronologique, ou null si erreur.
-    async function fetchRecent(limit = 200) {
-      const { data, error } = await supabaseClient
-        .from('readings')
-        .select('*')
-        .order('received_at', { ascending: false })
-        .limit(limit);
-      if (error) {
-        console.error('[Recent] Echec fetch:', error);
-        return null;
-      }
-      return (data || []).reverse();
-    }
-
     async function pollLive() {
       if (viewingPast) return; // pas de rafraichissement quand on regarde une archive
-      const data = await fetchRecent(200);
+      const todayKey = crDayKey(Date.now());     // jour local courant -> repart a minuit
+      const data = await fetchHistoryByDate(todayKey);
 
       if (data === null) {            // erreur reseau / Supabase
         setStatus('error', 'Déconnecté');
@@ -732,7 +718,7 @@ function formatDayLabel(key) {
       const todayKey = crDayKey(Date.now());
       await loadDayMeta(todayKey);
 
-      const data = await fetchRecent(200);
+      const data = await fetchHistoryByDate(todayKey);
       if (data && data.length > 0) {
         history = data;
         refreshChart(history);
