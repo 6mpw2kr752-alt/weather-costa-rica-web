@@ -501,7 +501,7 @@ const chartWind  = makeSimpleChart('chart-wind',  'Vent (m/s)',     '#a4b495', '
 const chartIR    = makeSimpleChart('chart-ir',    'IR scatter',     '#dfded9', 'rgba(223, 222, 217, 0.08)');
 
 function refreshChart(data) {
-  const last   = data.slice(-60);
+  const last   = data;
   const labels = last.map(r => {
     const d = new Date(r.received_at);
     return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
