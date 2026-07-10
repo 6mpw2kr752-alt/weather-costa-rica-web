@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Import des mesures STM32 · Station Météo</title>
+<style>
+:root{
+  --bg-page:#0c3e36; --bg-card:#051d19; --bg-elev:#0a2b25;
+  --line:rgba(223,222,217,.15); --text:#dfded9; --text-soft:#a4b495;
+  --text-faint:rgba(164,180,149,.5); --amber:#cd662a; --grn:#6fae8e;
+  --font:'Helvetica Neue',Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg-page);color:var(--text);font-family:var(--font);
+  min-height:100vh;padding:32px 20px;line-height:1.5}
+.wrap{max-width:820px;margin:0 auto}
+h1{font-weight:500;font-size:28px;letter-spacing:-.02em;margin-bottom:6px}
+h1 em{font-style:italic;color:var(--amber)}
+.sub{color:var(--text-soft);font-size:14px;margin-bottom:28px}
+.card{background:var(--bg-card);border:1px solid var(--line);padding:24px;margin-bottom:20px}
+label{display:block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-soft);margin-bottom:8px}
+.hint{font-size:12px;color:var(--text-faint);margin-top:6px}
+input,textarea{width:100%;font-family:var(--font);font-size:14px;color:var(--text);
+  background:var(--bg-elev);border:1px solid var(--line);padding:10px 12px;
+  border-radius:2px;outline:none}
+input:focus,textarea:focus{border-color:var(--amber)}
+textarea{min-height:180px;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.row>div{flex:1;min-width:220px}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+button{font-family:var(--font);font-size:13px;letter-spacing:.05em;cursor:pointer;
+  padding:11px 20px;border-radius:2px;border:1px solid var(--line);background:var(--bg-elev);color:var(--text)}
+button:hover{border-color:var(--amber)}
+button.primary{background:var(--amber);border-color:var(--amber);color:#0c1512;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+#result{margin-top:18px;font-size:13px;white-space:pre-wrap}
+.ok{color:var(--grn)} .err{color:var(--amber)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;margin-top:12px}
+.kv .k{color:var(--text-soft)}
+a{color:var(--text-soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Import <em>mesures STM32</em></h1>
+  <div class="sub">Injecte les mesures stockées sur la carte (dump flash) dans la base, sans doublon.</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Mot de passe d'import</label>
+        <input type="password" id="password" placeholder="•••••••••" autocomplete="off" />
+      </div>
+      <div>
+        <label>Identifiant du capteur</label>
+        <input type="text" id="deviceId" value="stm32-costar" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Heure de la dernière mesure (la plus récente)</label>
+        <input type="datetime-local" id="refTime" />
+        <div class="hint">Les mesures précédentes sont datées automatiquement, une toutes les 15 min en remontant.</div>
+      </div>
+    </div>
+
+    <label>Dump CSV (collez tout, en-têtes inclus si présents)</label>
+    <textarea id="csv" placeholder="idx,uptime_s,T_C,H_pct,P_hPa,V_ms,Sol_Wm2,R_mm,IR,WX,TX_OK&#10;3,7,20.00,78,822.8,3.1,0,0.0,1,0,1&#10;..."></textarea>
+
+    <div class="actions">
+      <button id="preview">Prévisualiser</button>
+      <button id="import" class="primary" disabled>Importer</button>
+    </div>
+
+    <div id="result"></div>
+  </div>
+
+  <div class="sub"><a href="/index.html">← Retour au tableau de bord</a></div>
+</div>
+
+<script>
+  // Pré-remplit l'heure de référence avec "maintenant" (heure locale).
+  (function () {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    const pad = (n) => String(n).padStart(2, '0');
+    const local = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    document.getElementById('refTime').value = local;
+  })();
+
+  const $ = (id) => document.getElementById(id);
+  const resultEl = $('result');
+  const importBtn = $('import');
+
+  function payload(dryRun) {
+    const refLocal = $('refTime').value;
+    if (!refLocal) throw new Error("Renseignez l'heure de la dernière mesure.");
+    return {
+      password: $('password').value,
+      deviceId: $('deviceId').value.trim() || 'stm32-costar',
+      // datetime-local est interprete en heure locale du navigateur -> instant exact
+      refTime: new Date(refLocal).toISOString(),
+      csv: $('csv').value,
+      dryRun,
+    };
+  }
+
+  function fmt(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('fr-FR');
+  }
+
+  async function call(dryRun) {
+    resultEl.innerHTML = 'Traitement…';
+    let body;
+    try { body = payload(dryRun); }
+    catch (e) { resultEl.innerHTML = `<span class="err">${e.message}</span>`; return null; }
+
+    try {
+      const res = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        resultEl.innerHTML = `<span class="err">Erreur : ${data.error || res.status}</span>`;
+        importBtn.disabled = true;
+        return null;
+      }
+      return data;
+    } catch (e) {
+      resultEl.innerHTML = `<span class="err">Réseau : ${e.message}</span>`;
+      return null;
+    }
+  }
+
+  $('preview').addEventListener('click', async () => {
+    importBtn.disabled = true;
+    const d = await call(true);
+    if (!d) return;
+    resultEl.innerHTML = `
+      <div class="kv">
+        <div class="k">Lignes valides dans le dump</div><div>${d.totalParsed}</div>
+        <div class="k">Dernière mesure déjà en base</div><div>${fmt(d.latestExisting)}</div>
+        <div class="k">Nouvelles à insérer</div><div><b>${d.newCount}</b></div>
+        <div class="k">Période ajoutée</div><div>${fmt(d.firstNew)} → ${fmt(d.lastNew)}</div>
+      </div>`;
+    importBtn.disabled = d.newCount === 0;
+    if (d.newCount === 0) {
+      resultEl.innerHTML += `<div class="ok" style="margin-top:10px">Rien à ajouter : la base est déjà à jour.</div>`;
+    }
+  });
+
+  importBtn.addEventListener('click', async () => {
+    importBtn.disabled = true;
+    const d = await call(false);
+    if (!d) return;
+    resultEl.innerHTML = `<span class="ok">✓ ${d.inserted} mesure(s) ajoutée(s).</span>
+      <div class="kv"><div class="k">Période ajoutée</div><div>${fmt(d.firstNew)} → ${fmt(d.lastNew)}</div></div>`;
+  });
+</script>
+</body>
+</html>
