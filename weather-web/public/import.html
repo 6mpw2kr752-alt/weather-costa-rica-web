@@ -40,6 +40,10 @@ button:disabled{opacity:.5;cursor:default}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px;margin-top:12px}
 .kv .k{color:var(--text-soft)}
 a{color:var(--text-soft)}
+.card.danger{border-color:rgba(205,102,42,.45)}
+button.danger-btn{background:#7a2b12;border-color:#a33d1c;color:#ffe9df;font-weight:600}
+button.danger-btn:hover{background:#93341600}
+.warn{color:var(--amber);font-size:13px;margin-top:12px}
 </style>
 </head>
 <body>
@@ -76,6 +80,41 @@ a{color:var(--text-soft)}
     </div>
 
     <div id="result"></div>
+  </div>
+
+  <h1 style="margin-top:36px">Supprimer <em>une plage</em></h1>
+  <div class="sub">Efface définitivement les mesures comprises entre deux dates. <b>Irréversible.</b></div>
+
+  <div class="card danger">
+    <div class="row">
+      <div>
+        <label>Mot de passe</label>
+        <input type="password" id="dPassword" placeholder="•••••••••" autocomplete="off" />
+      </div>
+      <div>
+        <label>Capteur (vide = tous)</label>
+        <input type="text" id="dDeviceId" placeholder="stm32-costar" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Du (date + heure)</label>
+        <input type="datetime-local" id="dFrom" />
+      </div>
+      <div>
+        <label>Au (date + heure)</label>
+        <input type="datetime-local" id="dTo" />
+      </div>
+    </div>
+    <div class="hint">Les deux bornes sont incluses. Heure locale de votre ordinateur.</div>
+
+    <div class="actions">
+      <button id="dPreview">Prévisualiser</button>
+      <button id="dDelete" class="danger-btn" disabled>Supprimer définitivement</button>
+    </div>
+
+    <div id="dResult"></div>
   </div>
 
   <div class="sub"><a href="/index.html">← Retour au tableau de bord</a></div>
@@ -161,6 +200,83 @@ a{color:var(--text-soft)}
     if (!d) return;
     resultEl.innerHTML = `<span class="ok">✓ ${d.inserted} mesure(s) ajoutée(s).</span>
       <div class="kv"><div class="k">Période ajoutée</div><div>${fmt(d.firstNew)} → ${fmt(d.lastNew)}</div></div>`;
+  });
+  /* ============================ SUPPRESSION ============================ */
+  const dResult = $('dResult');
+  const dDeleteBtn = $('dDelete');
+  let lastPreviewCount = null;
+
+  function dPayload(confirm) {
+    const f = $('dFrom').value, t = $('dTo').value;
+    if (!f || !t) throw new Error('Renseignez les deux dates.');
+    return {
+      password: $('dPassword').value,
+      deviceId: $('dDeviceId').value.trim() || undefined,
+      from: new Date(f).toISOString(),
+      to:   new Date(t).toISOString(),
+      confirm,
+    };
+  }
+
+  async function dCall(confirm) {
+    dResult.innerHTML = 'Traitement…';
+    let body;
+    try { body = dPayload(confirm); }
+    catch (e) { dResult.innerHTML = `<span class="err">${e.message}</span>`; return null; }
+
+    try {
+      const res = await fetch('/api/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        dResult.innerHTML = `<span class="err">Erreur : ${data.error || res.status}</span>`;
+        dDeleteBtn.disabled = true;
+        return null;
+      }
+      return data;
+    } catch (e) {
+      dResult.innerHTML = `<span class="err">Réseau : ${e.message}</span>`;
+      return null;
+    }
+  }
+
+  $('dPreview').addEventListener('click', async () => {
+    dDeleteBtn.disabled = true;
+    const d = await dCall(false);
+    if (!d) return;
+    lastPreviewCount = d.count;
+    dResult.innerHTML = `
+      <div class="kv">
+        <div class="k">Mesures concernées</div><div><b>${d.count}</b></div>
+        <div class="k">Première</div><div>${fmt(d.firstMatch)}</div>
+        <div class="k">Dernière</div><div>${fmt(d.lastMatch)}</div>
+      </div>
+      ${d.count > 0
+        ? `<div class="warn">⚠ Ces ${d.count} mesures seront définitivement effacées. Cette action est irréversible.</div>`
+        : `<div class="ok" style="margin-top:10px">Aucune mesure dans cette plage.</div>`}`;
+    dDeleteBtn.disabled = d.count === 0;
+  });
+
+  dDeleteBtn.addEventListener('click', async () => {
+    // Double confirmation : il faut taper le nombre exact de mesures.
+    const saisie = window.prompt(
+      `Suppression DÉFINITIVE de ${lastPreviewCount} mesure(s).\n\n` +
+      `Pour confirmer, tapez le nombre exact : ${lastPreviewCount}`
+    );
+    if (saisie === null) return;
+    if (String(saisie).trim() !== String(lastPreviewCount)) {
+      dResult.innerHTML = `<span class="err">Confirmation incorrecte — rien n'a été supprimé.</span>`;
+      return;
+    }
+
+    dDeleteBtn.disabled = true;
+    const d = await dCall(true);
+    if (!d) return;
+    dResult.innerHTML = `<span class="ok">✓ ${d.deleted} mesure(s) supprimée(s).</span>`;
+    lastPreviewCount = null;
   });
 </script>
 </body>
