@@ -82,6 +82,21 @@ button.danger-btn:hover{background:#93341600}
     <div id="result"></div>
   </div>
 
+  <h1 style="margin-top:36px">Rattrapage <em>TTN</em></h1>
+  <div class="sub">Va chercher dans TTN les mesures des dernières 24 h et comble les trous manquants, sans doublon.</div>
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Mot de passe</label>
+        <input type="password" id="cPassword" placeholder="•••••••••" autocomplete="off" />
+      </div>
+    </div>
+    <div class="actions">
+      <button id="cRun" class="primary">Lancer le rattrapage</button>
+    </div>
+    <div id="cResult"></div>
+  </div>
+
   <h1 style="margin-top:36px">Supprimer <em>une plage</em></h1>
   <div class="sub">Efface définitivement les mesures comprises entre deux dates. <b>Irréversible.</b></div>
 
@@ -277,6 +292,30 @@ button.danger-btn:hover{background:#93341600}
     if (!d) return;
     dResult.innerHTML = `<span class="ok">✓ ${d.deleted} mesure(s) supprimée(s).</span>`;
     lastPreviewCount = null;
+  });
+  /* ============================ RATTRAPAGE ============================ */
+  $('cRun').addEventListener('click', async () => {
+    const btn = $('cRun'); const out = $('cResult');
+    btn.disabled = true;
+    out.innerHTML = 'Recherche des mesures manquantes dans TTN…';
+    try {
+      const res = await fetch('/api/catchup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: $('cPassword').value }),
+      });
+      const d = await res.json();
+      if (!res.ok) {
+        out.innerHTML = `<span class="err">Erreur : ${d.error || res.status}</span>`;
+      } else if (d.inserted > 0) {
+        out.innerHTML = `<span class="ok">✓ ${d.inserted} mesure(s) récupérée(s) sur ${d.received} trouvée(s) dans TTN.</span>`;
+      } else {
+        out.innerHTML = `<span class="ok">Aucun trou : les ${d.received} mesures de TTN sont déjà en base.</span>`;
+      }
+    } catch (e) {
+      out.innerHTML = `<span class="err">Réseau : ${e.message}</span>`;
+    }
+    btn.disabled = false;
   });
 </script>
 </body>
