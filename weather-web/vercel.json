@@ -18,5 +18,11 @@
         }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/catchup",
+      "schedule": "0 7 * * *"
+    }
   ]
 }
