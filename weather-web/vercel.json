@@ -23,6 +23,6 @@
     {
       "path": "/api/catchup",
       "schedule": "0 7 * * *"
-    }
+    },{ "path": "/api/derive",  "schedule": "*/15 * * * *" }
   ]
 }
