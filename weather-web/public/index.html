@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Station Météorologique · San José</title>
+<title>Weather Station · San José</title>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -185,6 +185,22 @@ header {
 .metric-value .dec { color: var(--text-soft); }
 .metric-value .unit { font-size: 0.32em; color: var(--text-soft); font-weight: 400; margin-left: 6px; }
 .metric-trend { margin-top: 14px; font-size: 10px; color: var(--text-faint); letter-spacing: 0.05em; }
+.metric-trend .latest { color: var(--text-soft); font-feature-settings: "tnum" 1; }
+.metric-extremes {
+  margin-top: 18px; display: flex; gap: 22px; flex-wrap: wrap;
+  padding-top: 14px; border-top: 1px solid var(--line-soft);
+}
+.metric-extremes .ext { display: flex; align-items: baseline; gap: 7px; }
+.metric-extremes .ext-k {
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+}
+.metric-extremes .ext-v {
+  font-size: 15px; font-weight: 300; font-feature-settings: "tnum" 1; color: var(--text-soft);
+}
+.metric-extremes .ext.min .ext-v { color: var(--accent-grn); }
+.metric-extremes .ext.max .ext-v { color: var(--accent-org); }
+.metric-extremes.hidden { display: none; }
+.stats-scope { color: var(--text-soft); }
 .metric.updated { animation: flash 1.2s ease-out; }
 @keyframes flash { 0% { background: rgba(164, 180, 149, 0.15); } 100% { background: var(--bg-card); } }
 
@@ -230,103 +246,132 @@ footer .signal-data span { color: var(--text-soft); }
   <header>
     <div class="title-block">
       <div class="coord">9.93°N · 84.08°W — SAN JOSÉ, COSTA RICA</div>
-      <h1>Station <em>Météorologique</em></h1>
+      <h1>Weather <em>Station</em></h1>
     </div>
     <div class="status-block">
       <div class="status-pill" id="status">
         <span class="dot"></span>
-        <span id="status-text">Connexion…</span>
+        <span id="status-text">Connecting…</span>
       </div>
-      <div class="last-update" id="last-update">en attente de données</div>
+      <div class="last-update" id="last-update">waiting for data</div>
     </div>
   </header>
 
   <main>
 
     <section class="hero" data-state="unknown" id="hero">
-      <div class="hero-label">Conditions actuelles</div>
+      <div class="hero-label">Current conditions</div>
       <div class="hero-state-name" id="state-name">— —</div>
-      <div class="hero-detail" id="state-detail">en attente de la première mesure</div>
+      <div class="hero-detail" id="state-detail">waiting for the first reading</div>
     </section>
 
-    <div class="section-label">Mesures principales</div>
+    <div class="section-label">Primary measurements — average for <span class="stats-scope">today</span> (<span class="stats-count">0 readings</span>)</div>
     <section class="primary-grid">
       <div class="metric" data-key="temperature">
-        <div class="metric-label"><span>Température</span><span class="code">BME280</span></div>
+        <div class="metric-label"><span>Temperature</span><span class="code">BME280</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">°C</span></div>
-        <div class="metric-trend">capteur intérieur du module</div>
+        <div class="metric-extremes">
+          <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
+        </div>
+        <div class="metric-trend">Daily average · latest <span class="latest">—</span> °C</div>
       </div>
       <div class="metric" data-key="humidity">
-        <div class="metric-label"><span>Humidité</span><span class="code">RH</span></div>
+        <div class="metric-label"><span>Humidity</span><span class="code">RH</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">%</span></div>
-        <div class="metric-trend">point de rosée déduit</div>
+        <div class="metric-extremes">
+          <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
+        </div>
+        <div class="metric-trend">Daily average · latest <span class="latest">—</span> %</div>
       </div>
       <div class="metric" data-key="pressure">
-        <div class="metric-label"><span>Pression</span><span class="code">hPa</span></div>
+        <div class="metric-label"><span>Pressure</span><span class="code">hPa</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">hPa</span></div>
-        <div class="metric-trend">niveau station</div>
+        <div class="metric-extremes">
+          <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
+        </div>
+        <div class="metric-trend">Daily average · latest <span class="latest">—</span> hPa</div>
       </div>
     </section>
 
-    <div class="section-label">Mesures secondaires</div>
+    <div class="section-label">Secondary measurements — average for <span class="stats-scope">today</span></div>
     <section class="secondary-grid">
       <div class="metric" data-key="wind_speed">
-        <div class="metric-label"><span>Vent</span><span class="code">RS485</span></div>
+        <div class="metric-label"><span>Wind</span><span class="code">RS485</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">m/s</span></div>
+        <div class="metric-extremes">
+          <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
+        </div>
+        <div class="metric-trend">Daily average · latest <span class="latest">—</span> m/s</div>
       </div>
       <div class="metric" data-key="solar">
-        <div class="metric-label"><span>Solaire</span><span class="code">PR-300</span></div>
+        <div class="metric-label"><span>Solar</span><span class="code">PR-300</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">W/m²</span></div>
+        <div class="metric-extremes">
+          <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
+        </div>
+        <div class="metric-trend">Daily average · latest <span class="latest">—</span> W/m²</div>
       </div>
       <div class="metric" data-key="ir_scatter">
-        <div class="metric-label"><span>IR Scatter</span><span class="code">PROX</span></div>
-        <div class="metric-value"><span class="num">—</span><span class="unit">brut</span></div>
+        <div class="metric-label"><span>IR scatter</span><span class="code">PROX</span></div>
+        <div class="metric-value"><span class="num">—</span><span class="unit">raw</span></div>
+        <div class="metric-extremes">
+          <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
+        </div>
+        <div class="metric-trend">Daily average · latest <span class="latest">—</span></div>
       </div>
-      <div class="metric" data-key="rain_today_mm">
-        <div class="metric-label"><span>Pluie du jour</span><span class="code">PC</span></div>
+      <div class="metric" data-key="rain_today_mm" data-agg="cumulative">
+        <div class="metric-label"><span>Rainfall</span><span class="code">PC</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">mm</span></div>
+        <div class="metric-extremes hidden"></div>
+        <div class="metric-trend">Running total since midnight (local)</div>
       </div>
     </section>
 
-    <div class="section-label">Évolution récente</div>
+    <div class="section-label">Recent trend</div>
     <section class="day-meta" id="day-meta">
           <div class="day-meta-row">
-            <span class="day-meta-label">📍 Lieu</span>
-            <input type="text" class="day-meta-input" id="meta-location" placeholder="ex: Jardin face sud, 1170m altitude" />
+            <span class="day-meta-label">📍 Place</span>
+            <input type="text" class="day-meta-input" id="meta-location" placeholder="e.g. South-facing garden, 1170 m elevation" />
             <span class="day-meta-status" id="meta-status">—</span>
           </div>
           <div class="day-meta-row">
             <span class="day-meta-label">📝 Note</span>
-            <input type="text" class="day-meta-input" id="meta-note" placeholder="ex: Test placement Stevenson, abri PETG" />
+            <input type="text" class="day-meta-input" id="meta-note" placeholder="e.g. Stevenson screen placement test, PETG shield" />
           </div>
         </section>
     <section class="chart-card">
       <h2>
-        <span>Température &amp; humidité — <span id="chart-day-label">dernières mesures</span></span>
+        <span>Temperature &amp; humidity — <span id="chart-day-label">latest readings</span></span>
         <span class="chart-tools">
           <span class="archive-badge" id="archive-badge">archive</span>
-          <select id="day-picker"><option value="">Aujourd'hui (live)</option></select>
+          <select id="day-picker"><option value="">Today (live)</option></select>
           <span id="chart-count">0 points</span>
         </span>
       </h2>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
     </section>
 
-    <div class="section-label">Rayonnement solaire</div>
+    <div class="section-label">Solar radiation</div>
     <section class="chart-card">
-      <h2><span>Énergie solaire reçue</span><span class="chart-tools"><span id="solar-count">0 points</span></span></h2>
+      <h2><span>Incoming solar energy</span><span class="chart-tools"><span id="solar-count">0 points</span></span></h2>
       <div class="chart-wrap"><canvas id="chart-solar"></canvas></div>
     </section>
 
-    <div class="section-label">Vent</div>
+    <div class="section-label">Wind</div>
     <section class="chart-card">
-      <h2><span>Vitesse du vent</span><span class="chart-tools"><span id="wind-count">0 points</span></span></h2>
+      <h2><span>Wind speed</span><span class="chart-tools"><span id="wind-count">0 points</span></span></h2>
       <div class="chart-wrap"><canvas id="chart-wind"></canvas></div>
     </section>
 
-    <div class="section-label">Immersion nuageuse</div>
+    <div class="section-label">Cloud immersion</div>
     <section class="chart-card">
-      <h2><span>Diffusion infrarouge — détection de brouillard</span><span class="chart-tools"><span id="ir-count">0 points</span></span></h2>
+      <h2><span>Infrared scattering — fog detection</span><span class="chart-tools"><span id="ir-count">0 points</span></span></h2>
       <div class="chart-wrap"><canvas id="chart-ir"></canvas></div>
     </section>
 
@@ -340,21 +385,21 @@ footer .signal-data span { color: var(--text-soft); }
       <span id="snr">SNR —</span> ·
       <span id="fcnt">FCnt —</span>
     </div>
-    <div><a href="/import.html" style="color:var(--text-faint);text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:2px">Importer des mesures →</a></div>
+    <div><a href="/import.html" style="color:var(--text-faint);text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:2px">Import readings →</a></div>
   </footer>
 
 </div>
 
 <script>
-    // ---- Cles Supabase (la cle "publishable" est publique : OK dans le navigateur) ----
+    // ---- Supabase keys (the "publishable" key is public: safe in the browser) ----
     const SUPABASE_URL = 'https://qszrtpekhutrnttvkzay.supabase.co';
     const SUPABASE_ANON_KEY = 'sb_publishable_iIx1k7_FkgKJRcQtx7TLwg_85hURs0j';
     const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // Intervalle de rafraichissement du mode live (ms). Le capteur emet ~toutes les 15 min.
+    // Live refresh interval (ms). The station transmits roughly every 15 min.
     const POLL_MS = 60000;
 
-    // Jour "local Costa Rica" (UTC-6) au format YYYY-MM-DD, depuis une date/timestamp.
+    // "Costa Rica local" day (UTC-6) as YYYY-MM-DD, from a date/timestamp.
     function crDayKey(d) {
       const t = new Date(d);
       t.setUTCHours(t.getUTCHours() - 6);
@@ -362,13 +407,17 @@ footer .signal-data span { color: var(--text-soft); }
     }
 
 const STATE_INFO = {
-  clear:     { name: ['Ciel', 'clair'],       detail: 'Atmosphère stable. Aucune trace de brume détectée par le capteur infrarouge.' },
-  humid:     { name: ['Air', 'humide'],       detail: 'Humidité élevée mais sans condensation visible. La visibilité reste bonne.' },
-  mist:      { name: ['Brume', 'légère'],     detail: 'Particules d\'eau en suspension. Le capteur IR détecte une diffusion.' },
-  fog:       { name: ['Brouillard'],          detail: 'Condensation atmosphérique active. La rétro-diffusion infrarouge est franche.' },
-  dense_fog: { name: ['Brouillard', 'épais'], detail: 'Visibilité fortement réduite. Saturation thermodynamique.' },
-  unknown:   { name: ['— —'],                 detail: 'En attente de la première mesure.' }
+  clear:     { name: ['Clear', 'sky'],     detail: 'Stable atmosphere. No haze detected by the infrared sensor.' },
+  humid:     { name: ['Humid', 'air'],     detail: 'High humidity but no visible condensation. Visibility remains good.' },
+  mist:      { name: ['Light', 'mist'],    detail: 'Suspended water droplets. The IR sensor is picking up scattering.' },
+  fog:       { name: ['Fog'],              detail: 'Active atmospheric condensation. Infrared backscatter is pronounced.' },
+  dense_fog: { name: ['Dense', 'fog'],     detail: 'Strongly reduced visibility. Thermodynamic saturation.' },
+  unknown:   { name: ['— —'],              detail: 'Waiting for the first reading.' }
 };
+
+// Metrics aggregated as an average over the selected day.
+// rain_today_mm is excluded on purpose: it is already a running daily total.
+const AGG_KEYS = ['temperature', 'humidity', 'pressure', 'wind_speed', 'solar', 'ir_scatter'];
 
 const statusEl     = document.getElementById('status');
 const statusText   = document.getElementById('status-text');
@@ -390,14 +439,14 @@ function setStatus(state, text) {
 function relativeTime(iso) {
   if (!iso) return '—';
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (diff < 60)    return `il y a ${Math.floor(diff)}s`;
-  if (diff < 3600)  return `il y a ${Math.floor(diff / 60)} min`;
-  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`;
-  return new Date(iso).toLocaleString('fr-FR');
+  if (diff < 60)    return `${Math.floor(diff)}s ago`;
+  if (diff < 3600)  return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`;
+  return new Date(iso).toLocaleString('en-GB', { hour12: false });
 }
 
 setInterval(() => {
-  if (lastReadingAt) lastUpdateEl.textContent = `Dernière mesure ${relativeTime(lastReadingAt)}`;
+  if (lastReadingAt) lastUpdateEl.textContent = `Last reading ${relativeTime(lastReadingAt)}`;
 }, 1000);
 
 function formatNumber(value, key) {
@@ -413,15 +462,84 @@ function setMetric(key, value) {
   if (!card) return;
   const numEl = card.querySelector('.num');
   const formatted = formatNumber(value, key);
+  const changed = card.dataset.shown !== formatted;
+  card.dataset.shown = formatted;
+
   if (formatted.includes('.')) {
     const [int, dec] = formatted.split('.');
     numEl.innerHTML = `${int}<span class="dec">.${dec}</span>`;
   } else {
     numEl.textContent = formatted;
   }
+  if (!changed) return;            // no flash if the value did not move
   card.classList.remove('updated');
   void card.offsetWidth;
   card.classList.add('updated');
+}
+
+// ---------------------------------------------------------------
+//  DAILY STATISTICS — average / min / max over the displayed day.
+//  Recomputed from the full set of readings on every refresh,
+//  so the boxes stay in sync with each new measurement.
+// ---------------------------------------------------------------
+function isNum(v) {
+  return v !== null && v !== undefined && v !== '' && !isNaN(Number(v));
+}
+
+function computeStats(rows, key) {
+  let sum = 0, n = 0, min = Infinity, max = -Infinity;
+  for (const r of rows) {
+    if (!isNum(r[key])) continue;
+    const v = Number(r[key]);
+    sum += v; n++;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return n ? { avg: sum / n, min, max, n } : null;
+}
+
+function latestValue(rows, key) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (isNum(rows[i][key])) return Number(rows[i][key]);
+  }
+  return null;
+}
+
+function setExtremes(key, stats) {
+  const card = document.querySelector(`.metric[data-key="${key}"]`);
+  if (!card) return;
+  const minEl = card.querySelector('[data-ext="min"]');
+  const maxEl = card.querySelector('[data-ext="max"]');
+  if (minEl) minEl.textContent = stats ? formatNumber(stats.min, key) : '—';
+  if (maxEl) maxEl.textContent = stats ? formatNumber(stats.max, key) : '—';
+}
+
+function setLatest(key, value) {
+  const el = document.querySelector(`.metric[data-key="${key}"] .latest`);
+  if (el) el.textContent = value === null ? '—' : formatNumber(value, key);
+}
+
+function applyAggregates(rows) {
+  const data = rows || [];
+
+  for (const key of AGG_KEYS) {
+    const st = computeStats(data, key);
+    setMetric(key, st ? st.avg : null);   // the big number = daily average
+    setExtremes(key, st);                 // min / max of the day
+    setLatest(key, latestValue(data, key));
+  }
+
+  // Rainfall is cumulative: keep the latest running total, no average.
+  setMetric('rain_today_mm', latestValue(data, 'rain_today_mm'));
+
+  const n = data.length;
+  document.querySelectorAll('.stats-count').forEach(el => {
+    el.textContent = `${n} reading${n === 1 ? '' : 's'}`;
+  });
+}
+
+function setStatsScope(text) {
+  document.querySelectorAll('.stats-scope').forEach(el => { el.textContent = text; });
 }
 
 function setHero(weather) {
@@ -434,23 +552,18 @@ function setHero(weather) {
   detailEl.textContent = info.detail;
 }
 
+// Handles everything tied to the single latest reading: sky state,
+// radio signal, timestamp. The metric boxes are driven by applyAggregates().
 function applyReading(r) {
   if (!r) return;
   document.querySelector('.dashboard').classList.remove('no-data');
-  setMetric('temperature',   r.temperature);
-  setMetric('humidity',      r.humidity);
-  setMetric('pressure',      r.pressure);
-  setMetric('wind_speed',    r.wind_speed);
-  setMetric('solar',         r.solar);
-  setMetric('ir_scatter',    r.ir_scatter);
-  setMetric('rain_today_mm', r.rain_today_mm);
   setHero(r.weather);
   document.getElementById('device-id').textContent = `${r.device_id || '—'}`;
   document.getElementById('rssi').textContent = r.rssi != null ? `RSSI ${r.rssi} dBm` : 'RSSI —';
   document.getElementById('snr').textContent  = (r.snr != null && !isNaN(Number(r.snr))) ? `SNR ${Number(r.snr).toFixed(1)} dB` : 'SNR —';
   document.getElementById('fcnt').textContent = r.f_cnt != null ? `FCnt ${r.f_cnt}` : 'FCnt —';
   lastReadingAt = r.received_at;
-  lastUpdateEl.textContent = `Dernière mesure ${relativeTime(lastReadingAt)}`;
+  lastUpdateEl.textContent = `Last reading ${relativeTime(lastReadingAt)}`;
 }
 
 const chart = new Chart(document.getElementById('chart').getContext('2d'), {
@@ -458,8 +571,8 @@ const chart = new Chart(document.getElementById('chart').getContext('2d'), {
   data: {
     labels: [],
     datasets: [
-      { label: 'Température (°C)', data: [], borderColor: '#cd662a', backgroundColor: 'rgba(205, 102, 42, 0.08)', tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#cd662a', fill: true,  yAxisID: 'y'  },
-      { label: 'Humidité (%)',     data: [], borderColor: '#a4b495', backgroundColor: 'rgba(164, 180, 149, 0.05)', tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#a4b495', fill: false, yAxisID: 'y1' }
+      { label: 'Temperature (°C)', data: [], borderColor: '#cd662a', backgroundColor: 'rgba(205, 102, 42, 0.08)', tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#cd662a', fill: true,  yAxisID: 'y'  },
+      { label: 'Humidity (%)',    data: [], borderColor: '#a4b495', backgroundColor: 'rgba(164, 180, 149, 0.05)', tension: 0.35, borderWidth: 1.6, pointRadius: 0, pointHoverRadius: 4, pointHoverBackgroundColor: '#a4b495', fill: false, yAxisID: 'y1' }
     ]
   },
   options: {
@@ -496,15 +609,15 @@ function makeSimpleChart(canvasId, label, color, fillRgba) {
   });
 }
 
-const chartSolar = makeSimpleChart('chart-solar', 'Solaire (W/m²)', '#cd662a', 'rgba(205, 102, 42, 0.10)');
-const chartWind  = makeSimpleChart('chart-wind',  'Vent (m/s)',     '#a4b495', 'rgba(164, 180, 149, 0.10)');
+const chartSolar = makeSimpleChart('chart-solar', 'Solar (W/m²)', '#cd662a', 'rgba(205, 102, 42, 0.10)');
+const chartWind  = makeSimpleChart('chart-wind',  'Wind (m/s)',     '#a4b495', 'rgba(164, 180, 149, 0.10)');
 const chartIR    = makeSimpleChart('chart-ir',    'IR scatter',     '#dfded9', 'rgba(223, 222, 217, 0.08)');
 
 function refreshChart(data) {
   const last   = data;
   const labels = last.map(r => {
     const d = new Date(r.received_at);
-    return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
   });
 
   chart.data.labels = labels;
@@ -524,7 +637,7 @@ function refreshChart(data) {
   chartIR.data.datasets[0].data = last.map(r => r.ir_scatter);
   chartIR.update('none');
 
-  const lbl = `${last.length} point${last.length > 1 ? 's' : ''}`;
+  const lbl = `${last.length} point${last.length === 1 ? '' : 's'}`;
   document.getElementById('chart-count').textContent = lbl;
   document.getElementById('solar-count').textContent = lbl;
   document.getElementById('wind-count').textContent  = lbl;
@@ -532,24 +645,25 @@ function refreshChart(data) {
 }
 
     // ---------------------------------------------------------------
-    //  MODE LIVE — rafraichissement periodique (remplace le Realtime)
-    //  On relit les mesures du jour toutes les POLL_MS ms.
-    //  Meme chemin REST que le chargement initial : fiable, sans WebSocket.
+    //  LIVE MODE — periodic refresh (replaces Realtime).
+    //  Re-reads the whole day every POLL_MS ms, so the averages and
+    //  the min/max are recomputed on every new measurement.
     // ---------------------------------------------------------------
     async function pollLive() {
-      if (viewingPast) return; // pas de rafraichissement quand on regarde une archive
-      const todayKey = crDayKey(Date.now());     // jour local courant -> repart a minuit
+      if (viewingPast) return; // no refresh while browsing an archive
+      const todayKey = crDayKey(Date.now());     // current local day -> resets at midnight
       const data = await fetchHistoryByDate(todayKey);
 
-      if (data === null) {            // erreur reseau / Supabase
-        setStatus('error', 'Déconnecté');
+      if (data === null) {            // network / Supabase error
+        setStatus('error', 'Disconnected');
         return;
       }
       setStatus('live', 'Live');
       if (data.length > 0) {
         history = data;
         refreshChart(history);
-        applyReading(history[history.length - 1]);
+        applyAggregates(history);                      // average + min/max of the day
+        applyReading(history[history.length - 1]);     // sky state + signal
       }
     }
 
@@ -567,10 +681,10 @@ const chartDayLabel = document.getElementById('chart-day-label');
 function formatDayLabel(key) {
   const [y, m, d] = key.split('-');
   const dt = new Date(Number(y), Number(m) - 1, Number(d));
-  return dt.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-    // Liste des jours disponibles, calculee cote client (plus de RPC SQL).
+    // List of available days, computed client-side (no SQL RPC).
     async function loadDays() {
       try {
         const { data, error } = await supabaseClient
@@ -586,7 +700,7 @@ function formatDayLabel(key) {
           set.add(crDayKey(r.received_at));
         }
 
-        dayPicker.innerHTML = '<option value="">Aujourd\'hui (live)</option>';
+        dayPicker.innerHTML = '<option value="">Today (live)</option>';
         [...set].filter(k => k !== todayKey).sort().reverse().forEach(k => {
           const opt = document.createElement('option');
           opt.value = k;
@@ -594,13 +708,13 @@ function formatDayLabel(key) {
           dayPicker.appendChild(opt);
         });
       } catch (e) {
-        console.warn('[Days] Echec:', e);
+        console.warn('[Days] Failed:', e);
       }
     }
 
-    // Recupere les mesures d'un jour. Renvoie un tableau, ou null si erreur.
+    // Fetch one day of readings. Returns an array, or null on error.
     async function fetchHistoryByDate(dateStr) {
-      // Jour local Costa Rica (UTC-6) : minuit local = 06:00 UTC.
+      // Costa Rica local day (UTC-6): local midnight = 06:00 UTC.
       const from = `${dateStr}T06:00:00.000Z`;
       const [y, m, d] = dateStr.split('-').map(Number);
       const next = new Date(Date.UTC(y, m - 1, d + 1));
@@ -614,7 +728,7 @@ function formatDayLabel(key) {
         .order('received_at', { ascending: true });
 
       if (error) {
-        console.error('[History] Echec fetch:', error);
+        console.error('[History] Fetch failed:', error);
         return null;
       }
       return data || [];
@@ -627,29 +741,33 @@ function formatDayLabel(key) {
       await loadDayMeta(date || todayKey);
 
       if (!date) {
-        /* Mode LIVE */
+        /* LIVE mode */
         viewingPast = false;
         archiveBadge.classList.remove('on');
-        chartDayLabel.textContent = 'dernières mesures';
+        chartDayLabel.textContent = 'latest readings';
+        setStatsScope('today');
         startLivePolling();
         return;
       }
 
-      /* Mode ARCHIVE */
+      /* ARCHIVE mode */
       viewingPast = true;
       archiveBadge.classList.add('on');
       chartDayLabel.textContent = formatDayLabel(date);
+      setStatsScope(formatDayLabel(date));
 
       const data = await fetchHistoryByDate(date);
       if (data && data.length > 0) {
         refreshChart(data);
+        applyAggregates(data);
         applyReading(data[data.length - 1]);
       } else {
         refreshChart([]);
+        applyAggregates([]);
         document.querySelector('.dashboard').classList.add('no-data');
       }
     });
-    /* ===== Day metadata (lieu + note par jour) ===== */
+    /* ===== Day metadata (place + note per day) ===== */
     const dayMetaPanel   = document.getElementById('day-meta');
     const metaLocationEl = document.getElementById('meta-location');
     const metaNoteEl     = document.getElementById('meta-note');
@@ -660,7 +778,7 @@ function formatDayLabel(key) {
 
     function scheduleMetaSave() {
       if (!currentMetaDay) return;
-      metaStatusEl.textContent = 'modif…';
+      metaStatusEl.textContent = 'editing…';
       metaStatusEl.className = 'day-meta-status saving';
       clearTimeout(metaSaveTimer);
       metaSaveTimer = setTimeout(saveDayMeta, 800);
@@ -702,11 +820,11 @@ function formatDayLabel(key) {
 
         if (error) throw error;
 
-        metaStatusEl.textContent = '✓ sauvé';
+        metaStatusEl.textContent = '✓ saved';
         metaStatusEl.className = 'day-meta-status saved';
       } catch (e) {
         console.error(e);
-        metaStatusEl.textContent = '⚠ erreur';
+        metaStatusEl.textContent = '⚠ error';
         metaStatusEl.className = 'day-meta-status';
       }
     }
@@ -719,14 +837,16 @@ function formatDayLabel(key) {
       const todayKey = crDayKey(Date.now());
       await loadDayMeta(todayKey);
 
+      setStatsScope('today');
       const data = await fetchHistoryByDate(todayKey);
       if (data && data.length > 0) {
         history = data;
         refreshChart(history);
+        applyAggregates(history);
         applyReading(history[history.length - 1]);
       }
 
-      startLivePolling();       // remplace connectSupabaseRealtime()
+      startLivePolling();
     }
 
     initDashboard();
