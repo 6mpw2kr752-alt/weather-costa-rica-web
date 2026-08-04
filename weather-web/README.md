@@ -124,3 +124,4 @@ https://weather-costa-rica-web.vercel.app/api/ttn
 Prochaine etape du projet : le **tableau de bord** (lecture de Supabase en temps reel
 via la cle `anon` + Supabase Realtime), puis la migration de votre `readings.db`
 existant vers Supabase, et enfin un domaine personnalise.
+
