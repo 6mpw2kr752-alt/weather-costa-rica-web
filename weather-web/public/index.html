@@ -325,11 +325,11 @@ footer .signal-data span { color: var(--text-soft); }
         </div>
         <div class="metric-trend">Daily average · latest <span class="latest">—</span></div>
       </div>
-      <div class="metric" data-key="rain_today_mm" data-agg="cumulative">
+      <div class="metric" data-key="rain_day_mm" data-agg="cumulative">
         <div class="metric-label"><span>Rainfall</span><span class="code">PC</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">mm</span></div>
         <div class="metric-extremes hidden"></div>
-        <div class="metric-trend">Running total since midnight (local)</div>
+        <div class="metric-trend">Since local midnight · computed server-side</div>
       </div>
     </section>
 
@@ -416,7 +416,8 @@ const STATE_INFO = {
 };
 
 // Metrics aggregated as an average over the selected day.
-// rain_today_mm is excluded on purpose: it is already a running daily total.
+// rain_day_mm is excluded on purpose: it is already a daily total, so the
+// latest value is what matters, not the mean of the running totals.
 const AGG_KEYS = ['temperature', 'humidity', 'pressure', 'wind_speed', 'solar', 'ir_scatter'];
 
 const statusEl     = document.getElementById('status');
@@ -453,7 +454,7 @@ function formatNumber(value, key) {
   if (value === null || value === undefined || value === '') return '—';
   const num = Number(value);
   if (isNaN(num)) return '—';
-  const dmap = { temperature: 2, humidity: 1, pressure: 1, wind_speed: 1, solar: 0, ir_scatter: 0, rain_today_mm: 1 };
+  const dmap = { temperature: 2, humidity: 1, pressure: 1, wind_speed: 1, solar: 0, ir_scatter: 0, rain_day_mm: 1, rain_today_mm: 1 };
   return num.toFixed(dmap[key] ?? 1);
 }
 
@@ -529,8 +530,14 @@ function applyAggregates(rows) {
     setLatest(key, latestValue(data, key));
   }
 
-  // Rainfall is cumulative: keep the latest running total, no average.
-  setMetric('rain_today_mm', latestValue(data, 'rain_today_mm'));
+  // Rainfall: rain_day_mm is the daily total computed by /api/derive as the
+  // difference between the current cumulative counter and the first one of
+  // the local day. The raw rain_today_mm column now carries the sensor's
+  // lifetime cumulative count, which must never be displayed as such.
+  //
+  // Null until /api/derive has processed the reading: a dash is shown rather
+  // than a wrong figure.
+  setMetric('rain_day_mm', latestValue(data, 'rain_day_mm'));
 
   const n = data.length;
   document.querySelectorAll('.stats-count').forEach(el => {
@@ -772,7 +779,7 @@ function formatDayLabel(key) {
     const READ_COLS = [
       'received_at', 'device_id', 'f_cnt',
       'temperature', 'humidity', 'pressure',
-      'wind_speed', 'solar', 'ir_scatter', 'rain_today_mm',
+      'wind_speed', 'solar', 'ir_scatter', 'rain_day_mm',
       'weather', 'immersion', 'immersion_dense',
       'rssi', 'snr'
     ].join(',');
