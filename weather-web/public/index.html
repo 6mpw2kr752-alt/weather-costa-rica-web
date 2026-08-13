@@ -552,12 +552,44 @@ function setHero(weather) {
   detailEl.textContent = info.detail;
 }
 
+// ---------------------------------------------------------------
+//  WEATHER STATE — derived here rather than read from the payload.
+//
+//  The firmware no longer classifies on board: it sends wx = 0 and the
+//  classification is done server-side, so the `weather` column is null
+//  for every recent reading. Recomputing it here keeps the hero panel
+//  alive whether or not /api/derive has already run.
+//
+//  Priority: the server-side immersion flag when it exists, otherwise
+//  the thermodynamic criterion (dew-point depression) from Section 3.
+// ---------------------------------------------------------------
+function deriveState(r) {
+  if (!r) return 'unknown';
+
+  // Server-side result, when /api/derive has processed this reading.
+  if (r.immersion === true) return r.immersion_dense === true ? 'dense_fog' : 'fog';
+
+  // Legacy readings that still carry an on-board state.
+  if (r.weather && STATE_INFO[r.weather]) return r.weather;
+
+  if (!isNum(r.temperature) || !isNum(r.humidity)) return 'unknown';
+
+  const T  = Number(r.temperature);
+  const RH = Math.min(100, Math.max(1, Number(r.humidity)));
+  const a  = Math.log(RH / 100) + (17.625 * T) / (243.04 + T);
+  const spread = T - (243.04 * a) / (17.625 - a);
+
+  if (RH > 92 && spread < 3) return 'mist';
+  if (RH > 85)               return 'humid';
+  return 'clear';
+}
+
 // Handles everything tied to the single latest reading: sky state,
 // radio signal, timestamp. The metric boxes are driven by applyAggregates().
 function applyReading(r) {
   if (!r) return;
   document.querySelector('.dashboard').classList.remove('no-data');
-  setHero(r.weather);
+  setHero(deriveState(r));
   document.getElementById('device-id').textContent = `${r.device_id || '—'}`;
   document.getElementById('rssi').textContent = r.rssi != null ? `RSSI ${r.rssi} dBm` : 'RSSI —';
   document.getElementById('snr').textContent  = (r.snr != null && !isNaN(Number(r.snr))) ? `SNR ${Number(r.snr).toFixed(1)} dB` : 'SNR —';
@@ -613,35 +645,46 @@ const chartSolar = makeSimpleChart('chart-solar', 'Solar (W/m²)', '#cd662a', 'r
 const chartWind  = makeSimpleChart('chart-wind',  'Wind (m/s)',     '#a4b495', 'rgba(164, 180, 149, 0.10)');
 const chartIR    = makeSimpleChart('chart-ir',    'IR scatter',     '#dfded9', 'rgba(223, 222, 217, 0.08)');
 
+function hhmm(iso) {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// ---------------------------------------------------------------
+//  CHARTS
+//
+//  Readings that arrived while the TTN payload formatter was rejecting
+//  the frame carry null in every field. Plotting them as gaps leaves a
+//  chart that looks empty; each series therefore filters on its own
+//  value before being drawn, and the point count reports what was
+//  actually plotted rather than how many rows were fetched.
+//
+//  ir_scatter is also null whenever the proximity channel saturated,
+//  which is a legitimate "no valid measurement" and must not be drawn
+//  as a zero.
+// ---------------------------------------------------------------
 function refreshChart(data) {
-  const last   = data;
-  const labels = last.map(r => {
-    const d = new Date(r.received_at);
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-  });
+  const rows = data || [];
 
-  chart.data.labels = labels;
-  chart.data.datasets[0].data = last.map(r => r.temperature);
-  chart.data.datasets[1].data = last.map(r => r.humidity);
+  const tRows = rows.filter(r => isNum(r.temperature) || isNum(r.humidity));
+  chart.data.labels = tRows.map(r => hhmm(r.received_at));
+  chart.data.datasets[0].data = tRows.map(r => isNum(r.temperature) ? Number(r.temperature) : null);
+  chart.data.datasets[1].data = tRows.map(r => isNum(r.humidity)    ? Number(r.humidity)    : null);
   chart.update('none');
+  document.getElementById('chart-count').textContent =
+    `${tRows.length} point${tRows.length === 1 ? '' : 's'}`;
 
-  chartSolar.data.labels = labels;
-  chartSolar.data.datasets[0].data = last.map(r => r.solar);
-  chartSolar.update('none');
+  const fill = (ch, key, countId) => {
+    const sub = rows.filter(r => isNum(r[key]));
+    ch.data.labels = sub.map(r => hhmm(r.received_at));
+    ch.data.datasets[0].data = sub.map(r => Number(r[key]));
+    ch.update('none');
+    document.getElementById(countId).textContent =
+      `${sub.length} point${sub.length === 1 ? '' : 's'}`;
+  };
 
-  chartWind.data.labels = labels;
-  chartWind.data.datasets[0].data = last.map(r => r.wind_speed);
-  chartWind.update('none');
-
-  chartIR.data.labels = labels;
-  chartIR.data.datasets[0].data = last.map(r => r.ir_scatter);
-  chartIR.update('none');
-
-  const lbl = `${last.length} point${last.length === 1 ? '' : 's'}`;
-  document.getElementById('chart-count').textContent = lbl;
-  document.getElementById('solar-count').textContent = lbl;
-  document.getElementById('wind-count').textContent  = lbl;
-  document.getElementById('ir-count').textContent    = lbl;
+  fill(chartSolar, 'solar',      'solar-count');
+  fill(chartWind,  'wind_speed', 'wind-count');
+  fill(chartIR,    'ir_scatter', 'ir-count');
 }
 
     // ---------------------------------------------------------------
@@ -663,8 +706,17 @@ function refreshChart(data) {
         history = data;
         refreshChart(history);
         applyAggregates(history);                      // average + min/max of the day
-        applyReading(history[history.length - 1]);     // sky state + signal
+        applyReading(lastUsableReading(history));      // sky state + signal
       }
+    }
+
+    // The most recent reading that actually carries values. Falls back to
+    // the very last row so the radio metadata is still shown.
+    function lastUsableReading(rows) {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (isNum(rows[i].temperature) && isNum(rows[i].humidity)) return rows[i];
+      }
+      return rows[rows.length - 1];
     }
 
     function startLivePolling() {
@@ -713,6 +765,18 @@ function formatDayLabel(key) {
     }
 
     // Fetch one day of readings. Returns an array, or null on error.
+    //
+    // Only the displayed columns are requested. A bare select('*') now
+    // pulls frm_payload and every derived column for the whole day, which
+    // multiplies the response size for no benefit on a slow field link.
+    const READ_COLS = [
+      'received_at', 'device_id', 'f_cnt',
+      'temperature', 'humidity', 'pressure',
+      'wind_speed', 'solar', 'ir_scatter', 'rain_today_mm',
+      'weather', 'immersion', 'immersion_dense',
+      'rssi', 'snr'
+    ].join(',');
+
     async function fetchHistoryByDate(dateStr) {
       // Costa Rica local day (UTC-6): local midnight = 06:00 UTC.
       const from = `${dateStr}T06:00:00.000Z`;
@@ -722,7 +786,7 @@ function formatDayLabel(key) {
 
       const { data, error } = await supabaseClient
         .from('readings')
-        .select('*')
+        .select(READ_COLS)
         .gte('received_at', from)
         .lte('received_at', to)
         .order('received_at', { ascending: true });
@@ -760,7 +824,7 @@ function formatDayLabel(key) {
       if (data && data.length > 0) {
         refreshChart(data);
         applyAggregates(data);
-        applyReading(data[data.length - 1]);
+        applyReading(lastUsableReading(data));
       } else {
         refreshChart([]);
         applyAggregates([]);
@@ -843,7 +907,7 @@ function formatDayLabel(key) {
         history = data;
         refreshChart(history);
         applyAggregates(history);
-        applyReading(history[history.length - 1]);
+        applyReading(lastUsableReading(history));
       }
 
       startLivePolling();
