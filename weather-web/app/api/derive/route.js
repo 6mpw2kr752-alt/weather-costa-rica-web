@@ -213,12 +213,49 @@ function computeBaselines(rows) {
 }
 
 // =====================================================================
+//  4 bis. PLUIE JOURNALIERE, par difference de cumuls
+//
+//  La station transmet desormais le CUMUL du pluviometre depuis sa mise en
+//  service, et non son compteur "today". Ce compteur se remettait a zero
+//  selon l'horloge interne du capteur, de fuseau inconnu, ce qui effacait
+//  en pleine journee locale la pluie deja tombee.
+//
+//  La pluie d'une journee locale est donc la difference entre le dernier et
+//  le premier cumul de cette journee. Deux precautions :
+//    - une difference negative signale un debordement du compteur 16 bits
+//      (6553.5 mm) ou un remplacement du capteur : on la neutralise ;
+//    - la journee est celle du Costa Rica (UTC-6), pas celle du capteur.
+// =====================================================================
+function crDayKey(iso) {
+  const t = new Date(iso);
+  t.setUTCHours(t.getUTCHours() - 6);
+  return t.toISOString().split('T')[0];
+}
+
+function computeDailyRain(rows) {
+  // Premier cumul observe pour chaque journee locale.
+  const firstOfDay = new Map();
+  for (const r of rows) {
+    if (r.rain_today_mm === null || r.rain_today_mm === undefined) continue;
+    const day = crDayKey(r.received_at);
+    if (!firstOfDay.has(day)) firstOfDay.set(day, Number(r.rain_today_mm));
+  }
+
+  return rows.map((r) => {
+    if (r.rain_today_mm === null || r.rain_today_mm === undefined) return null;
+    const base = firstOfDay.get(crDayKey(r.received_at));
+    if (base === undefined) return null;
+    const d = Number(r.rain_today_mm) - base;
+    return d < 0 ? 0 : Math.round(d * 10) / 10;   // debordement ou capteur remplace
+  });
+}
+
 async function runDerive(days) {
   const since = new Date(Date.now() - days * 86400 * 1000).toISOString();
 
   const { data: rows, error } = await supabase
     .from('readings')
-    .select('received_at, device_id, f_cnt, pressure, solar, ir_scatter, ir_saturated, als_raw')
+    .select('received_at, device_id, f_cnt, pressure, solar, ir_scatter, ir_saturated, als_raw, rain_today_mm')
     .gte('received_at', since)
     .order('received_at', { ascending: true })
     .limit(10000);
@@ -226,7 +263,8 @@ async function runDerive(days) {
   if (error) throw new Error('lecture Supabase : ' + error.message);
   if (!rows || rows.length === 0) return { processed: 0, immersions: 0, days };
 
-  const baselines = computeBaselines(rows);
+  const baselines  = computeBaselines(rows);
+  const dailyRain  = computeDailyRain(rows);
   const now = new Date().toISOString();
 
   let immersions = 0, denses = 0, indetermines = 0;
@@ -275,6 +313,7 @@ async function runDerive(days) {
       prox_baseline: baseline === null ? null : Math.round(baseline * 10) / 10,
       prox_excess: excessPct === null ? null : Math.round(excessPct * 10) / 10,
       altitude_est: Math.round(alt),
+      rain_day_mm: dailyRain[i],
       derived_at: now,
     };
   });
