@@ -7,6 +7,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <style>
 :root {
@@ -200,6 +201,44 @@ header {
 .metric-extremes .ext.min .ext-v { color: var(--accent-grn); }
 .metric-extremes .ext.max .ext-v { color: var(--accent-org); }
 .metric-extremes.hidden { display: none; }
+
+/* ===== Export CSV / Excel ===== */
+.export-card { border: 1px solid var(--line); background: var(--bg-card); padding: 32px; margin-top: 32px; }
+.export-card h2 {
+  font-size: 11px; letter-spacing: 0.15em; text-transform: uppercase;
+  color: var(--text-soft); font-weight: 400; margin-bottom: 24px;
+}
+.export-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+.export-field { display: flex; flex-direction: column; gap: 7px; }
+.export-field label {
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-faint);
+}
+.export-field input, .export-field select {
+  font-family: var(--font-base); font-size: 14px; color: var(--text);
+  background: var(--bg-elev); border: 1px solid var(--line);
+  padding: 8px 12px; border-radius: 2px; outline: none; color-scheme: dark;
+}
+.export-field input:focus, .export-field select:focus { border-color: var(--amber); }
+.export-btn {
+  font-family: var(--font-base); font-size: 11px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--bg-card);
+  background: var(--accent-grn); border: 1px solid var(--accent-grn);
+  padding: 10px 20px; border-radius: 2px; cursor: pointer;
+}
+.export-btn:disabled { opacity: 0.5; cursor: progress; }
+.export-status {
+  margin-top: 16px; font-size: 11px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-faint); min-height: 16px;
+}
+.export-status.err { color: var(--warm); }
+.export-status.ok  { color: var(--accent-grn); }
+.export-presets { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+.preset-btn {
+  font-family: var(--font-base); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--text-soft); background: transparent;
+  border: 1px solid var(--line); padding: 6px 12px; border-radius: 2px; cursor: pointer;
+}
+.preset-btn:hover { border-color: var(--amber); color: var(--text); }
 .stats-scope { color: var(--text-soft); }
 .metric.updated { animation: flash 1.2s ease-out; }
 @keyframes flash { 0% { background: rgba(164, 180, 149, 0.15); } 100% { background: var(--bg-card); } }
@@ -373,6 +412,43 @@ footer .signal-data span { color: var(--text-soft); }
     <section class="chart-card">
       <h2><span>Infrared scattering — fog detection</span><span class="chart-tools"><span id="ir-count">0 points</span></span></h2>
       <div class="chart-wrap"><canvas id="chart-ir"></canvas></div>
+    </section>
+
+    <div class="section-label">Data export</div>
+    <section class="export-card">
+      <h2>Export readings between two dates</h2>
+      <div class="export-row">
+        <div class="export-field">
+          <label for="exp-from">From</label>
+          <input type="date" id="exp-from" />
+        </div>
+        <div class="export-field">
+          <label for="exp-to">To</label>
+          <input type="date" id="exp-to" />
+        </div>
+        <div class="export-field">
+          <label for="exp-format">Format</label>
+          <select id="exp-format">
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="csv">CSV (.csv)</option>
+          </select>
+        </div>
+        <div class="export-field">
+          <label for="exp-granularity">Rows</label>
+          <select id="exp-granularity">
+            <option value="raw">Every reading</option>
+            <option value="daily">Daily summary</option>
+          </select>
+        </div>
+        <button type="button" class="export-btn" id="exp-run">Download</button>
+      </div>
+      <div class="export-presets">
+        <button type="button" class="preset-btn" data-days="7">Last 7 days</button>
+        <button type="button" class="preset-btn" data-days="30">Last 30 days</button>
+        <button type="button" class="preset-btn" data-days="90">Last 90 days</button>
+        <button type="button" class="preset-btn" data-days="all">Everything</button>
+      </div>
+      <div class="export-status" id="exp-status"></div>
     </section>
 
   </main>
@@ -919,6 +995,215 @@ function formatDayLabel(key) {
 
       startLivePolling();
     }
+
+
+    /* ===== Export CSV / Excel sur une plage de dates ===== */
+    const expFrom   = document.getElementById('exp-from');
+    const expTo     = document.getElementById('exp-to');
+    const expFormat = document.getElementById('exp-format');
+    const expGran   = document.getElementById('exp-granularity');
+    const expRun    = document.getElementById('exp-run');
+    const expStatus = document.getElementById('exp-status');
+
+    const EXPORT_COLS = [
+      'received_at', 'device_id', 'f_cnt',
+      'temperature', 'humidity', 'pressure',
+      'wind_speed', 'solar', 'ir_scatter', 'rain_day_mm',
+      'weather', 'immersion', 'immersion_dense',
+      'rssi', 'snr'
+    ];
+
+    function setExpStatus(msg, kind = '') {
+      expStatus.textContent = msg;
+      expStatus.className = 'export-status ' + kind;
+    }
+
+    // Supabase renvoie 1000 lignes au maximum par requete : il faut paginer.
+    // A une mesure toutes les 15 min, 1000 lignes ne couvrent qu'environ 10 jours.
+    async function fetchRange(fromIso, toIso) {
+      const PAGE = 1000;
+      let out = [];
+      for (let offset = 0; ; offset += PAGE) {
+        const { data, error } = await supabaseClient
+          .from('readings')
+          .select(EXPORT_COLS.join(','))
+          .gte('received_at', fromIso)
+          .lte('received_at', toIso)
+          .order('received_at', { ascending: true })
+          .range(offset, offset + PAGE - 1);
+
+        if (error) throw error;
+        out = out.concat(data || []);
+        setExpStatus('fetching... ' + out.length + ' rows');
+        if (!data || data.length < PAGE) break;
+        if (offset > 200000) break; // garde-fou
+      }
+      return out;
+    }
+
+    // Date lisible par Excel, en heure locale Costa Rica (UTC-6).
+    function crLocalString(iso) {
+      const t = new Date(iso);
+      t.setUTCHours(t.getUTCHours() - 6);
+      return t.toISOString().replace('T', ' ').slice(0, 19);
+    }
+
+    function toRows(data) {
+      return data.map(r => ({
+        'Date (CR local)': crLocalString(r.received_at),
+        'Timestamp (UTC)': r.received_at,
+        'Device': r.device_id ?? '',
+        'FCnt': r.f_cnt ?? '',
+        'Temperature (C)': r.temperature ?? '',
+        'Humidity (%)': r.humidity ?? '',
+        'Pressure (hPa)': r.pressure ?? '',
+        'Wind speed (m/s)': r.wind_speed ?? '',
+        'Solar (W/m2)': r.solar ?? '',
+        'IR scatter': r.ir_scatter ?? '',
+        'Rain since midnight (mm)': r.rain_day_mm ?? '',
+        'Weather': r.weather ?? '',
+        'Immersion': r.immersion ?? '',
+        'Dense immersion': r.immersion_dense ?? '',
+        'RSSI': r.rssi ?? '',
+        'SNR': r.snr ?? ''
+      }));
+    }
+
+    // Resume par jour : min / moyenne / max des grandeurs continues.
+    function toDailyRows(data) {
+      const byDay = new Map();
+      for (const r of data) {
+        const k = crDayKey(r.received_at);
+        if (!byDay.has(k)) byDay.set(k, []);
+        byDay.get(k).push(r);
+      }
+
+      const stat = (rows, key) => {
+        const v = rows.map(r => Number(r[key])).filter(Number.isFinite);
+        if (!v.length) return { min: '', avg: '', max: '' };
+        const sum = v.reduce((a, b) => a + b, 0);
+        return {
+          min: Math.min(...v),
+          avg: Math.round((sum / v.length) * 100) / 100,
+          max: Math.max(...v)
+        };
+      };
+
+      return [...byDay.keys()].sort().map(day => {
+        const rows = byDay.get(day);
+        const t = stat(rows, 'temperature');
+        const h = stat(rows, 'humidity');
+        const p = stat(rows, 'pressure');
+        const w = stat(rows, 'wind_speed');
+        const s = stat(rows, 'solar');
+        // rain_day_mm est cumulatif depuis minuit : le total du jour est le max.
+        const rain = rows.map(r => Number(r.rain_day_mm)).filter(Number.isFinite);
+        return {
+          'Day': day,
+          'Readings': rows.length,
+          'Temp min (C)': t.min, 'Temp avg (C)': t.avg, 'Temp max (C)': t.max,
+          'Hum min (%)': h.min,  'Hum avg (%)': h.avg,  'Hum max (%)': h.max,
+          'Press min (hPa)': p.min, 'Press avg (hPa)': p.avg, 'Press max (hPa)': p.max,
+          'Wind avg (m/s)': w.avg, 'Wind max (m/s)': w.max,
+          'Solar avg (W/m2)': s.avg, 'Solar max (W/m2)': s.max,
+          'Rain total (mm)': rain.length ? Math.max(...rain) : ''
+        };
+      });
+    }
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function exportCsv(rows, filename) {
+      const headers = Object.keys(rows[0]);
+      const esc = (v) => {
+        const s = String(v ?? '');
+        return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      // Separateur ";" + BOM UTF-8 : Excel ouvre le fichier sans assistant d'import.
+      const csv = [headers.join(';')]
+        .concat(rows.map(r => headers.map(h => esc(r[h])).join(';')))
+        .join('\r\n');
+      downloadBlob(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }), filename);
+    }
+
+    function exportXlsx(rows, filename, sheetName) {
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = Object.keys(rows[0]).map(h => ({ wch: Math.max(12, h.length + 2) }));
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, filename);
+    }
+
+    async function runExport() {
+      const from = expFrom.value;
+      const to   = expTo.value;
+      if (!from || !to) { setExpStatus('pick both dates', 'err'); return; }
+      if (from > to)    { setExpStatus('start date is after end date', 'err'); return; }
+
+      expRun.disabled = true;
+      setExpStatus('fetching...');
+
+      try {
+        // Jour local Costa Rica (UTC-6) : minuit local = 06:00 UTC.
+        const fromIso = from + 'T06:00:00.000Z';
+        const [y, m, d] = to.split('-').map(Number);
+        const next = new Date(Date.UTC(y, m - 1, d + 1));
+        const toIso = next.toISOString().split('T')[0] + 'T05:59:59.999Z';
+
+        const data = await fetchRange(fromIso, toIso);
+        if (!data.length) { setExpStatus('no data in this range', 'err'); return; }
+
+        const daily = expGran.value === 'daily';
+        const rows  = daily ? toDailyRows(data) : toRows(data);
+        const base  = 'weather-' + from + '_to_' + to + (daily ? '-daily' : '');
+
+        if (expFormat.value === 'csv') exportCsv(rows, base + '.csv');
+        else exportXlsx(rows, base + '.xlsx', daily ? 'Daily summary' : 'Readings');
+
+        setExpStatus(rows.length + ' rows exported (' + data.length + ' readings)', 'ok');
+      } catch (e) {
+        console.error('[Export]', e);
+        setExpStatus('export failed - see browser console', 'err');
+      } finally {
+        expRun.disabled = false;
+      }
+    }
+
+    expRun.addEventListener('click', runExport);
+
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const todayKey = crDayKey(Date.now());
+        expTo.value = todayKey;
+        if (btn.dataset.days === 'all') {
+          expFrom.value = '2020-01-01';
+        } else {
+          const n = Number(btn.dataset.days);
+          const t = new Date(todayKey + 'T12:00:00Z');
+          t.setUTCDate(t.getUTCDate() - (n - 1));
+          expFrom.value = t.toISOString().split('T')[0];
+        }
+        setExpStatus('');
+      });
+    });
+
+    // Valeurs par defaut : les 7 derniers jours.
+    (function initExportDates() {
+      const todayKey = crDayKey(Date.now());
+      expTo.value = todayKey;
+      const t = new Date(todayKey + 'T12:00:00Z');
+      t.setUTCDate(t.getUTCDate() - 6);
+      expFrom.value = t.toISOString().split('T')[0];
+    })();
 
     initDashboard();
     setInterval(loadDays, 5 * 60 * 1000);
