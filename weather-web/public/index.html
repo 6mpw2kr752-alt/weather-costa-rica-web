@@ -1087,7 +1087,7 @@ function formatDayLabel(key) {
 
     // Colonnes reellement lues en base pour l'export.
     const EXPORT_COLS = [
-      'received_at', 'f_cnt',
+      'received_at',
       'temperature', 'humidity', 'pressure',
       'wind_speed', 'solar', 'ir_scatter', 'rain_day_mm',
       'immersion', 'immersion_dense'
@@ -1144,10 +1144,13 @@ function formatDayLabel(key) {
       return t.toISOString().replace('T', ' ').slice(0, 19);
     }
 
+    // Un booleen ecrit tel quel devient une cellule de type "booleen", qu'Excel
+    // affiche traduite (VRAI / FAUX). On force donc du texte brut.
+    const boolStr = (v) => (v === true ? 'true' : v === false ? 'false' : '');
+
     function toRows(data) {
       return data.map(r => ({
         'Date & time (CR)': crLocalString(r.received_at),
-        'FCnt': r.f_cnt ?? '',
         'Temperature (C)': r.temperature ?? '',
         'Humidity (%)': r.humidity ?? '',
         'Pressure (hPa)': r.pressure ?? '',
@@ -1155,8 +1158,8 @@ function formatDayLabel(key) {
         'Solar (W/m2)': r.solar ?? '',
         'IR scatter': r.ir_scatter ?? '',
         'Rain since midnight (mm)': r.rain_day_mm ?? '',
-        'Immersion': r.immersion ?? '',
-        'Dense immersion': r.immersion_dense ?? ''
+        'Immersion': boolStr(r.immersion),
+        'Dense immersion': boolStr(r.immersion_dense)
       }));
     }
 
