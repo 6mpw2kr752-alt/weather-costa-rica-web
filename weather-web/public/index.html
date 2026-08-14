@@ -70,6 +70,16 @@
 }
 .day-meta-status.saving { color: var(--amber); }
 .day-meta-status.saved  { color: var(--accent-grn); }
+.day-meta-input:disabled { opacity: 0.5; cursor: not-allowed; }
+.lock-btn {
+  font-family: var(--font-base); font-size: 10px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-soft);
+  background: var(--bg-elev); border: 1px solid var(--line);
+  padding: 7px 12px; border-radius: 2px; cursor: pointer; white-space: nowrap;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.lock-btn:hover { border-color: var(--amber); color: var(--text); }
+.lock-btn.unlocked { border-color: var(--accent-grn); color: var(--accent-grn); }
 html, body {
   background: var(--bg-page);
   color: var(--text);
@@ -376,12 +386,13 @@ footer .signal-data span { color: var(--text-soft); }
     <section class="day-meta" id="day-meta">
           <div class="day-meta-row">
             <span class="day-meta-label">📍 Place</span>
-            <input type="text" class="day-meta-input" id="meta-location" placeholder="e.g. South-facing garden, 1170 m elevation" />
+            <input type="text" class="day-meta-input" id="meta-location" placeholder="e.g. South-facing garden, 1170 m elevation" disabled />
             <span class="day-meta-status" id="meta-status">—</span>
           </div>
           <div class="day-meta-row">
             <span class="day-meta-label">📝 Note</span>
-            <input type="text" class="day-meta-input" id="meta-note" placeholder="e.g. Stevenson screen placement test, PETG shield" />
+            <input type="text" class="day-meta-input" id="meta-note" placeholder="e.g. Stevenson screen placement test, PETG shield" disabled />
+            <button type="button" class="lock-btn" id="meta-lock-btn">🔒 Unlock</button>
           </div>
         </section>
     <section class="chart-card">
@@ -416,15 +427,15 @@ footer .signal-data span { color: var(--text-soft); }
 
     <div class="section-label">Data export</div>
     <section class="export-card">
-      <h2>Export readings between two dates</h2>
+      <h2>Export readings between two dates and times</h2>
       <div class="export-row">
         <div class="export-field">
-          <label for="exp-from">From</label>
-          <input type="date" id="exp-from" />
+          <label for="exp-from">From &mdash; CR local time</label>
+          <input type="datetime-local" id="exp-from" step="60" />
         </div>
         <div class="export-field">
-          <label for="exp-to">To</label>
-          <input type="date" id="exp-to" />
+          <label for="exp-to">To &mdash; CR local time</label>
+          <input type="datetime-local" id="exp-to" step="60" />
         </div>
         <div class="export-field">
           <label for="exp-format">Format</label>
@@ -443,6 +454,8 @@ footer .signal-data span { color: var(--text-soft); }
         <button type="button" class="export-btn" id="exp-run">Download</button>
       </div>
       <div class="export-presets">
+        <button type="button" class="preset-btn" data-hours="6">Last 6 h</button>
+        <button type="button" class="preset-btn" data-hours="24">Last 24 h</button>
         <button type="button" class="preset-btn" data-days="7">Last 7 days</button>
         <button type="button" class="preset-btn" data-days="30">Last 30 days</button>
         <button type="button" class="preset-btn" data-days="90">Last 90 days</button>
@@ -954,23 +967,89 @@ function formatDayLabel(key) {
       metaStatusEl.className = 'day-meta-status';
     }
 
+    /* ---- Verrou : la LECTURE reste publique, l'ECRITURE passe par /api/day-meta.
+           Le navigateur ne connait jamais la cle service_role, et la table est
+           fermee en RLS : le cadenas n'est donc pas seulement decoratif. ---- */
+    const metaLockBtn = document.getElementById('meta-lock-btn');
+
+    // Le mot de passe ne survit pas a la fermeture de l'onglet.
+    const getMetaPassword = () => sessionStorage.getItem('metaPassword');
+
+    function setLockedUI(unlocked) {
+      metaLocationEl.disabled = !unlocked;
+      metaNoteEl.disabled     = !unlocked;
+      metaLockBtn.textContent = unlocked ? '\u{1F513} Lock' : '\u{1F512} Unlock';
+      metaLockBtn.classList.toggle('unlocked', unlocked);
+    }
+
+    metaLockBtn.addEventListener('click', async () => {
+      if (getMetaPassword()) {
+        sessionStorage.removeItem('metaPassword');
+        setLockedUI(false);
+        metaStatusEl.textContent = 'locked';
+        metaStatusEl.className = 'day-meta-status';
+        return;
+      }
+
+      const pw = prompt('Password to edit place and notes:');
+      if (!pw) return;
+
+      metaStatusEl.textContent = 'checking...';
+      metaStatusEl.className = 'day-meta-status saving';
+
+      try {
+        const res = await fetch('/api/day-meta', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pw, check: true })
+        });
+        if (!res.ok) throw new Error('rejected');
+
+        sessionStorage.setItem('metaPassword', pw);
+        setLockedUI(true);
+        metaStatusEl.textContent = 'unlocked';
+        metaStatusEl.className = 'day-meta-status saved';
+      } catch {
+        metaStatusEl.textContent = '⚠ wrong password';
+        metaStatusEl.className = 'day-meta-status';
+      }
+    });
+
     async function saveDayMeta() {
       if (!currentMetaDay) return;
+
+      const pw = getMetaPassword();
+      if (!pw) {
+        metaStatusEl.textContent = '\u{1F512} locked';
+        metaStatusEl.className = 'day-meta-status';
+        return;
+      }
+
       try {
-        const { error } = await supabaseClient
-          .from('day_metadata')
-          .upsert({
+        const res = await fetch('/api/day-meta', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            password: pw,
             day: currentMetaDay,
             location: metaLocationEl.value.trim(),
             note: metaNoteEl.value.trim()
-          }, { onConflict: 'day' });
+          })
+        });
 
-        if (error) throw error;
+        if (res.status === 401) {
+          sessionStorage.removeItem('metaPassword');
+          setLockedUI(false);
+          metaStatusEl.textContent = '⚠ password rejected';
+          metaStatusEl.className = 'day-meta-status';
+          return;
+        }
+        if (!res.ok) throw new Error(await res.text());
 
         metaStatusEl.textContent = '✓ saved';
         metaStatusEl.className = 'day-meta-status saved';
       } catch (e) {
-        console.error(e);
+        console.error('[Meta] save fail:', e);
         metaStatusEl.textContent = '⚠ error';
         metaStatusEl.className = 'day-meta-status';
       }
@@ -978,6 +1057,7 @@ function formatDayLabel(key) {
 
     metaLocationEl.addEventListener('input', scheduleMetaSave);
     metaNoteEl.addEventListener('input', scheduleMetaSave);
+    setLockedUI(!!getMetaPassword());
 
     async function initDashboard() {
       await loadDays();
@@ -997,7 +1077,7 @@ function formatDayLabel(key) {
     }
 
 
-    /* ===== Export CSV / Excel sur une plage de dates ===== */
+    /* ===== Export CSV / Excel sur une plage date + heure ===== */
     const expFrom   = document.getElementById('exp-from');
     const expTo     = document.getElementById('exp-to');
     const expFormat = document.getElementById('exp-format');
@@ -1005,17 +1085,33 @@ function formatDayLabel(key) {
     const expRun    = document.getElementById('exp-run');
     const expStatus = document.getElementById('exp-status');
 
+    // Colonnes reellement lues en base pour l'export.
     const EXPORT_COLS = [
-      'received_at', 'device_id', 'f_cnt',
+      'received_at', 'f_cnt',
       'temperature', 'humidity', 'pressure',
       'wind_speed', 'solar', 'ir_scatter', 'rain_day_mm',
-      'weather', 'immersion', 'immersion_dense',
-      'rssi', 'snr'
+      'immersion', 'immersion_dense'
     ];
+
+    const CR_OFFSET_H = 6; // Costa Rica = UTC-6, sans heure d'ete
 
     function setExpStatus(msg, kind = '') {
       expStatus.textContent = msg;
       expStatus.className = 'export-status ' + kind;
+    }
+
+    // "2026-08-14T09:30" saisi en heure Costa Rica -> instant UTC reel.
+    function crInputToUtcIso(v) {
+      const t = new Date(v.length === 16 ? v + ':00Z' : v + 'Z');
+      t.setUTCHours(t.getUTCHours() + CR_OFFSET_H);
+      return t.toISOString();
+    }
+
+    // Instant UTC -> "2026-08-14T09:30" pour remplir les champs.
+    function utcToCrInput(ms) {
+      const t = new Date(ms);
+      t.setUTCHours(t.getUTCHours() - CR_OFFSET_H);
+      return t.toISOString().slice(0, 16);
     }
 
     // Supabase renvoie 1000 lignes au maximum par requete : il faut paginer.
@@ -1041,18 +1137,16 @@ function formatDayLabel(key) {
       return out;
     }
 
-    // Date lisible par Excel, en heure locale Costa Rica (UTC-6).
+    // Date + heure lisibles par Excel, en heure locale Costa Rica.
     function crLocalString(iso) {
       const t = new Date(iso);
-      t.setUTCHours(t.getUTCHours() - 6);
+      t.setUTCHours(t.getUTCHours() - CR_OFFSET_H);
       return t.toISOString().replace('T', ' ').slice(0, 19);
     }
 
     function toRows(data) {
       return data.map(r => ({
-        'Date (CR local)': crLocalString(r.received_at),
-        'Timestamp (UTC)': r.received_at,
-        'Device': r.device_id ?? '',
+        'Date & time (CR)': crLocalString(r.received_at),
         'FCnt': r.f_cnt ?? '',
         'Temperature (C)': r.temperature ?? '',
         'Humidity (%)': r.humidity ?? '',
@@ -1061,11 +1155,8 @@ function formatDayLabel(key) {
         'Solar (W/m2)': r.solar ?? '',
         'IR scatter': r.ir_scatter ?? '',
         'Rain since midnight (mm)': r.rain_day_mm ?? '',
-        'Weather': r.weather ?? '',
         'Immersion': r.immersion ?? '',
-        'Dense immersion': r.immersion_dense ?? '',
-        'RSSI': r.rssi ?? '',
-        'SNR': r.snr ?? ''
+        'Dense immersion': r.immersion_dense ?? ''
       }));
     }
 
@@ -1096,10 +1187,10 @@ function formatDayLabel(key) {
         const p = stat(rows, 'pressure');
         const w = stat(rows, 'wind_speed');
         const s = stat(rows, 'solar');
-        // rain_day_mm est cumulatif depuis minuit : le total du jour est le max.
+        // rain_day_mm est cumulatif depuis minuit : le total du jour est son max.
         const rain = rows.map(r => Number(r.rain_day_mm)).filter(Number.isFinite);
         return {
-          'Day': day,
+          'Day (CR)': day,
           'Readings': rows.length,
           'Temp min (C)': t.min, 'Temp avg (C)': t.avg, 'Temp max (C)': t.max,
           'Hum min (%)': h.min,  'Hum avg (%)': h.avg,  'Hum max (%)': h.max,
@@ -1143,28 +1234,30 @@ function formatDayLabel(key) {
       XLSX.writeFile(wb, filename);
     }
 
+    // "2026-08-14T09:30" -> "2026-08-14_09h30" (pas de ":" dans un nom de fichier)
+    function fileStamp(v) {
+      return v.slice(0, 16).replace('T', '_').replace(':', 'h');
+    }
+
     async function runExport() {
       const from = expFrom.value;
       const to   = expTo.value;
-      if (!from || !to) { setExpStatus('pick both dates', 'err'); return; }
-      if (from > to)    { setExpStatus('start date is after end date', 'err'); return; }
+      if (!from || !to) { setExpStatus('pick both start and end', 'err'); return; }
+      if (from > to)    { setExpStatus('start is after end', 'err'); return; }
 
       expRun.disabled = true;
       setExpStatus('fetching...');
 
       try {
-        // Jour local Costa Rica (UTC-6) : minuit local = 06:00 UTC.
-        const fromIso = from + 'T06:00:00.000Z';
-        const [y, m, d] = to.split('-').map(Number);
-        const next = new Date(Date.UTC(y, m - 1, d + 1));
-        const toIso = next.toISOString().split('T')[0] + 'T05:59:59.999Z';
+        const fromIso = crInputToUtcIso(from);
+        const toIso   = crInputToUtcIso(to);
 
         const data = await fetchRange(fromIso, toIso);
         if (!data.length) { setExpStatus('no data in this range', 'err'); return; }
 
         const daily = expGran.value === 'daily';
         const rows  = daily ? toDailyRows(data) : toRows(data);
-        const base  = 'weather-' + from + '_to_' + to + (daily ? '-daily' : '');
+        const base  = 'weather-' + fileStamp(from) + '_to_' + fileStamp(to) + (daily ? '-daily' : '');
 
         if (expFormat.value === 'csv') exportCsv(rows, base + '.csv');
         else exportXlsx(rows, base + '.xlsx', daily ? 'Daily summary' : 'Readings');
@@ -1182,27 +1275,30 @@ function formatDayLabel(key) {
 
     document.querySelectorAll('.preset-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const todayKey = crDayKey(Date.now());
-        expTo.value = todayKey;
-        if (btn.dataset.days === 'all') {
-          expFrom.value = '2020-01-01';
+        const now = Date.now();
+        expTo.value = utcToCrInput(now);
+
+        if (btn.dataset.hours) {
+          expFrom.value = utcToCrInput(now - Number(btn.dataset.hours) * 3600 * 1000);
+        } else if (btn.dataset.days === 'all') {
+          expFrom.value = '2020-01-01T00:00';
         } else {
+          // Depuis minuit (heure CR) du jour J-(n-1)
           const n = Number(btn.dataset.days);
-          const t = new Date(todayKey + 'T12:00:00Z');
-          t.setUTCDate(t.getUTCDate() - (n - 1));
-          expFrom.value = t.toISOString().split('T')[0];
+          expFrom.value = utcToCrInput(now).slice(0, 10) + 'T00:00';
+          const start = new Date(expFrom.value + ':00Z');
+          start.setUTCDate(start.getUTCDate() - (n - 1));
+          expFrom.value = start.toISOString().slice(0, 16);
         }
         setExpStatus('');
       });
     });
 
-    // Valeurs par defaut : les 7 derniers jours.
+    // Valeurs par defaut : les dernieres 24 h.
     (function initExportDates() {
-      const todayKey = crDayKey(Date.now());
-      expTo.value = todayKey;
-      const t = new Date(todayKey + 'T12:00:00Z');
-      t.setUTCDate(t.getUTCDate() - 6);
-      expFrom.value = t.toISOString().split('T')[0];
+      const now = Date.now();
+      expTo.value   = utcToCrInput(now);
+      expFrom.value = utcToCrInput(now - 24 * 3600 * 1000);
     })();
 
     initDashboard();
