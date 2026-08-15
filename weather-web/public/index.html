@@ -210,6 +210,7 @@ header {
 }
 .metric-extremes .ext.min .ext-v { color: var(--accent-grn); }
 .metric-extremes .ext.max .ext-v { color: var(--accent-org); }
+.metric-extremes .ext.mean .ext-v { color: var(--text); }
 .metric-extremes.hidden { display: none; }
 
 /* ===== Export CSV / Excel ===== */
@@ -314,65 +315,65 @@ footer .signal-data span { color: var(--text-soft); }
       <div class="hero-detail" id="state-detail">waiting for the first reading</div>
     </section>
 
-    <div class="section-label">Primary measurements — average for <span class="stats-scope">today</span> (<span class="stats-count">0 readings</span>)</div>
+    <div class="section-label">Primary measurements — latest reading · <span class="stats-scope">today</span> (<span class="stats-count">0 readings</span>)</div>
     <section class="primary-grid">
       <div class="metric" data-key="temperature">
         <div class="metric-label"><span>Temperature</span><span class="code">BME280</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">°C</span></div>
         <div class="metric-extremes">
           <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext mean"><span class="ext-k">Mean</span><span class="ext-v" data-ext="mean">—</span></span>
           <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
         </div>
-        <div class="metric-trend">Daily average · latest <span class="latest">—</span> °C</div>
       </div>
       <div class="metric" data-key="humidity">
         <div class="metric-label"><span>Humidity</span><span class="code">RH</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">%</span></div>
         <div class="metric-extremes">
           <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext mean"><span class="ext-k">Mean</span><span class="ext-v" data-ext="mean">—</span></span>
           <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
         </div>
-        <div class="metric-trend">Daily average · latest <span class="latest">—</span> %</div>
       </div>
       <div class="metric" data-key="pressure">
         <div class="metric-label"><span>Pressure</span><span class="code">hPa</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">hPa</span></div>
         <div class="metric-extremes">
           <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext mean"><span class="ext-k">Mean</span><span class="ext-v" data-ext="mean">—</span></span>
           <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
         </div>
-        <div class="metric-trend">Daily average · latest <span class="latest">—</span> hPa</div>
       </div>
     </section>
 
-    <div class="section-label">Secondary measurements — average for <span class="stats-scope">today</span></div>
+    <div class="section-label">Secondary measurements — latest reading · <span class="stats-scope">today</span></div>
     <section class="secondary-grid">
       <div class="metric" data-key="wind_speed">
         <div class="metric-label"><span>Wind</span><span class="code">RS485</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">m/s</span></div>
         <div class="metric-extremes">
           <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext mean"><span class="ext-k">Mean</span><span class="ext-v" data-ext="mean">—</span></span>
           <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
         </div>
-        <div class="metric-trend">Daily average · latest <span class="latest">—</span> m/s</div>
       </div>
       <div class="metric" data-key="solar">
         <div class="metric-label"><span>Solar</span><span class="code">PR-300</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">W/m²</span></div>
         <div class="metric-extremes">
           <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext mean"><span class="ext-k">Mean</span><span class="ext-v" data-ext="mean">—</span></span>
           <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
         </div>
-        <div class="metric-trend">Daily average · latest <span class="latest">—</span> W/m²</div>
       </div>
       <div class="metric" data-key="ir_scatter">
         <div class="metric-label"><span>IR scatter</span><span class="code">PROX</span></div>
         <div class="metric-value"><span class="num">—</span><span class="unit">raw</span></div>
         <div class="metric-extremes">
           <span class="ext min"><span class="ext-k">Min</span><span class="ext-v" data-ext="min">—</span></span>
+          <span class="ext mean"><span class="ext-k">Mean</span><span class="ext-v" data-ext="mean">—</span></span>
           <span class="ext max"><span class="ext-k">Max</span><span class="ext-v" data-ext="max">—</span></span>
         </div>
-        <div class="metric-trend">Daily average · latest <span class="latest">—</span></div>
       </div>
       <div class="metric" data-key="rain_day_mm" data-agg="cumulative">
         <div class="metric-label"><span>Rainfall</span><span class="code">PC</span></div>
@@ -598,10 +599,13 @@ function latestValue(rows, key) {
 function setExtremes(key, stats) {
   const card = document.querySelector(`.metric[data-key="${key}"]`);
   if (!card) return;
-  const minEl = card.querySelector('[data-ext="min"]');
-  const maxEl = card.querySelector('[data-ext="max"]');
-  if (minEl) minEl.textContent = stats ? formatNumber(stats.min, key) : '—';
-  if (maxEl) maxEl.textContent = stats ? formatNumber(stats.max, key) : '—';
+  const put = (ext, v) => {
+    const el = card.querySelector(`[data-ext="${ext}"]`);
+    if (el) el.textContent = stats ? formatNumber(v, key) : '—';
+  };
+  put('min',  stats && stats.min);
+  put('mean', stats && stats.avg);
+  put('max',  stats && stats.max);
 }
 
 function setLatest(key, value) {
@@ -614,9 +618,8 @@ function applyAggregates(rows) {
 
   for (const key of AGG_KEYS) {
     const st = computeStats(data, key);
-    setMetric(key, st ? st.avg : null);   // the big number = daily average
-    setExtremes(key, st);                 // min / max of the day
-    setLatest(key, latestValue(data, key));
+    setMetric(key, latestValue(data, key)); // le gros chiffre = derniere mesure
+    setExtremes(key, st);                   // min / moyenne / max du jour
   }
 
   // Rainfall: rain_day_mm is the daily total computed by /api/derive as the
