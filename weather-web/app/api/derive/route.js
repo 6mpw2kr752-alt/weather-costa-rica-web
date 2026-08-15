@@ -237,6 +237,7 @@ function computeDailyRain(rows) {
   const firstOfDay = new Map();
   for (const r of rows) {
     if (r.rain_today_mm === null || r.rain_today_mm === undefined) continue;
+if (!r.temperature && !r.pressure) continue;
     const day = crDayKey(r.received_at);
     if (!firstOfDay.has(day)) firstOfDay.set(day, Number(r.rain_today_mm));
   }
